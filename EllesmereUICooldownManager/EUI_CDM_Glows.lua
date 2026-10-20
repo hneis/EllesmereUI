@@ -871,6 +871,9 @@ local function InstallProcGlowHooks()
         -- Apply immediately: no defer needed, icon mapping is current from the last reanchor.
         local ourIcon = FindOurIconForBlizzChild(barKey, cdmChild)
         if not ourIcon then return end
+        if ns._cdmAnyProcActiveTimer and ns.FakeActive_ProcState then
+            ns.FakeActive_ProcState(ourIcon, true)
+        end
         ShowProcGlow(ourIcon)
         -- Force texture re-evaluation so override textures apply immediately
         FC(ourIcon).lastTex = nil
@@ -882,6 +885,9 @@ local function InstallProcGlowHooks()
         if not barKey or not cdmChild then return end
         local ourIcon = FindOurIconForBlizzChild(barKey, cdmChild)
         local fd = ourIcon and _getFD(ourIcon)
+        if ourIcon and ns._cdmAnyProcActiveTimer and ns.FakeActive_ProcState then
+            ns.FakeActive_ProcState(ourIcon, nil)
+        end
         if not ourIcon or not (fd and fd.procGlowActive) then return end
 
         -- Trust Blizzard's HideAlert: stop immediately. A re-fired ShowAlert during an internal refresh restarts the glow next frame.

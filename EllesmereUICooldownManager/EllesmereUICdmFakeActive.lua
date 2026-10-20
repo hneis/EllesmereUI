@@ -105,6 +105,7 @@ local NativeTimers = {
     rules = {},
     bySettings = setmetatable({}, { __mode = "k" }),
     owners = setmetatable({}, { __mode = "k" }),
+    procFrames = setmetatable({}, { __mode = "k" }),
     needCooldown = false,
 }
 
@@ -599,14 +600,20 @@ function ns.FakeActive_ReleaseNativeFrame(frame)
 end
 
 local function PrepareNativeRuleFrames(rule)
-    if InCombatLockdown and InCombatLockdown() then return end
+    local inCombat = InCombatLockdown and InCombatLockdown()
     local icons = ns.cdmBarIcons
     local FCt = ns._ecmeFC
     if not (icons and FCt) then return end
     for _, list in pairs(icons) do
         for i = 1, #list do
             local frame = list[i]
-            if RuleMatchesFrame(rule, frame, FCt) then GetOverlay(frame) end
+            if RuleMatchesFrame(rule, frame, FCt) then
+                if not _overlays[frame] and not inCombat then GetOverlay(frame) end
+                if _overlays[frame] and rule.source == "proc"
+                   and ns.FakeActive_ProcState then
+                    ns.FakeActive_ProcState(frame, nil)
+                end
+            end
         end
     end
 end
@@ -1181,6 +1188,53 @@ function ns.FakeActive_NativeState(_frame, settings, active, initial)
     if not (rule and rule.source == "native") then return end
     if not active then return end
     if initial and _windows[rule] then return end
+    local win = CastWindow(rule)
+    if win then OpenWindow(rule, win) end
+end
+
+local function CurrentProcState(frame)
+    local spellID
+    if frame and frame.GetSpellID then
+        local ok, value = pcall(frame.GetSpellID, frame)
+        if ok and not (issecretvalue and issecretvalue(value))
+           and type(value) == "number" and value > 0 then
+            spellID = value
+        end
+    end
+    if not spellID then
+        local hookInternals = ns._hookInternals
+        if hookInternals and hookInternals.ResolveFrameSpellID then
+            local ok, value = pcall(hookInternals.ResolveFrameSpellID, frame)
+            if ok and not (issecretvalue and issecretvalue(value))
+               and type(value) == "number" and value > 0 then
+                spellID = value
+            end
+        end
+    end
+    if not (spellID and C_SpellActivationOverlay
+            and C_SpellActivationOverlay.IsSpellOverlayed) then return nil end
+    local active = C_SpellActivationOverlay.IsSpellOverlayed(spellID)
+    if issecretvalue and issecretvalue(active) then return nil end
+    if type(active) == "boolean" then return active end
+end
+
+function ns.FakeActive_ProcState(frame, active)
+    local fc = ns._ecmeFC and ns._ecmeFC[frame]
+    if not (fc and fc.spellID and fc.barKey) then return end
+    local settings = ns.ResolveSpellSettings and ns.ResolveSpellSettings(frame,
+        fc.spellID, ns.GetBarSpellData(fc.barKey), fc.barKey)
+    local rule = settings and NativeTimers.bySettings[settings]
+    if not (rule and rule.source == "proc") then return end
+    if active == nil then active = CurrentProcState(frame) end
+    if active == nil then return end
+    if not active then
+        if NativeTimers.procFrames[frame] == rule then
+            NativeTimers.procFrames[frame] = nil
+        end
+        return
+    end
+    if NativeTimers.procFrames[frame] == rule then return end
+    NativeTimers.procFrames[frame] = rule
     local win = CastWindow(rule)
     if win then OpenWindow(rule, win) end
 end
@@ -1972,7 +2026,7 @@ function ns.FakeActive_Rearm()
     RestoreAllCdState()  -- un-hide / un-glow icons from the outgoing rule set
     CloseAll()
     wipe(_rules); wipe(_auraRules); wipe(_customRules); wipe(_castMap); wipe(_cdStateRules)
-    wipe(NativeTimers.rules); wipe(NativeTimers.bySettings)
+    wipe(NativeTimers.rules); wipe(NativeTimers.bySettings); wipe(NativeTimers.procFrames)
     wipe(NativeTimers.owners)
     NativeTimers.needCooldown = false
     -- Re-read rather than wipe: a re-arm during the login window would leave
@@ -2010,7 +2064,7 @@ function ns.FakeActive_Rearm()
             local duration = type(settings) == "table"
                 and (tonumber(rawget(settings, "activeTimerDuration")) or 0) or 0
             if type(spellID) == "number" and spellID > 0 and duration > 0
-               and (source == "native" or source == "cast") then
+               and (source == "native" or source == "proc" or source == "cast") then
                 local rule = {
                     spellID = spellID,
                     settings = settings,
@@ -2024,6 +2078,7 @@ function ns.FakeActive_Rearm()
                 _rules[#_rules + 1] = rule
                 NativeTimers.rules[#NativeTimers.rules + 1] = rule
                 NativeTimers.bySettings[settings] = rule
+                if source == "proc" then ns._cdmAnyProcActiveTimer = true end
                 if source == "cast" or rule.closeOnCast then _needCast = true end
                 if rule.showCooldown or rule.predictBorder then
                     NativeTimers.needCooldown = true

@@ -1251,14 +1251,15 @@ end
 -- inherited bar tiers never arm spell-specific behavior. The gate is monotonic
 -- so disabling a timer still reaches the watcher cleanup path this session.
 function ns.RescanNativeActiveTimerFlag()
-    if ns._cdmAnyNativeActiveTimer or ns._nativeActiveTimerFlagScanned then return end
+    if ns._nativeActiveTimerFlagScanned then return end
     if not EllesmereUIDB then return end
     ns._nativeActiveTimerFlagScanned = true
     ns.ForEachSavedSettingsBlock(function(ss)
-        if rawget(ss, "activeTimerSource") ~= nil
+        local source = rawget(ss, "activeTimerSource")
+        if source ~= nil
            and (tonumber(rawget(ss, "activeTimerDuration")) or 0) > 0 then
             ns._cdmAnyNativeActiveTimer = true
-            return true
+            if source == "proc" then ns._cdmAnyProcActiveTimer = true end
         end
     end)
 end

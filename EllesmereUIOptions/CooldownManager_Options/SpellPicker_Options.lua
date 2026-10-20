@@ -12,9 +12,11 @@ if not ns then return end  -- module disabled: no options page
 EllesmereUI.L("Active State Timer")
 EllesmereUI.L("Timer Source")
 EllesmereUI.L("Native Active State")
+EllesmereUI.L("Proc Glow")
 EllesmereUI.L("After Cast")
 EllesmereUI.L("Close Timer After Cast")
 EllesmereUI.L("Choose Native Active State first")
+EllesmereUI.L("Choose a proc-driven Timer Source first")
 EllesmereUI.L("Show Real Cooldown")
 EllesmereUI.L("Choose a Timer Source first")
 EllesmereUI.L("Real Cooldown Position")
@@ -4005,6 +4007,9 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         local function TimerChanged(row)
                             if rawget(ss, "activeTimerSource") ~= nil then
                                 ns._cdmAnyNativeActiveTimer = true
+                                if rawget(ss, "activeTimerSource") == "proc" then
+                                    ns._cdmAnyProcActiveTimer = true
+                                end
                             end
                             if ns.FakeActive_Rearm then ns.FakeActive_Rearm() end
                             if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
@@ -4022,8 +4027,8 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                 frameStrata = "FULLSCREEN_DIALOG", frameLevel = 350,
                                 rows = {
                                     { type="dropdown", label="Timer Source",
-                                      values={ off="Off", native="Native Active State", cast="After Cast" },
-                                      order={ "off", "native", "cast" },
+                                      values={ off="Off", native="Native Active State", proc="Proc Glow", cast="After Cast" },
+                                      order={ "off", "native", "proc", "cast" },
                                       get=function() return rawget(ss, "activeTimerSource") or "off" end,
                                       set=function(v)
                                           EnsureSS()
@@ -4044,8 +4049,11 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                           TimerChanged(row)
                                       end },
                                     { type="toggle", label="Close Timer After Cast",
-                                      disabled=function() return rawget(ss, "activeTimerSource") ~= "native" end,
-                                      disabledTooltip="Choose Native Active State first",
+                                      disabled=function()
+                                          local source = rawget(ss, "activeTimerSource")
+                                          return source ~= "native" and source ~= "proc"
+                                      end,
+                                      disabledTooltip="Choose a proc-driven Timer Source first",
                                       get=function() return rawget(ss, "activeTimerCloseOnCast") == true end,
                                       set=function(v) EnsureSS(); ss.activeTimerCloseOnCast = v or nil; TimerChanged(row) end },
                                     { type="toggle", label="Show Real Cooldown",

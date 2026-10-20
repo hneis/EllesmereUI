@@ -417,6 +417,7 @@ L["Native Active State"]           = "Нативное активное сост
 L["After Cast"]                    = "После применения"
 L["Close Timer After Cast"]        = "Закрывать таймер после применения"
 L["Choose Native Active State first"] = "Сначала выберите нативное активное состояние"
+L["Choose a proc-driven Timer Source first"] = "Сначала выберите источник таймера от прока"
 L["Show Real Cooldown"]            = "Показывать реальный КД"
 L["Choose a Timer Source first"]   = "Сначала выберите источник таймера"
 L["Real Cooldown Position"]        = "Позиция реального КД"
