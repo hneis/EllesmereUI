@@ -18,10 +18,12 @@ EllesmereUI.L("After Cast")
 EllesmereUI.L("Close Timer After Cast")
 EllesmereUI.L("Choose an event-driven Timer Source first")
 EllesmereUI.L("Choose a Timer Source first")
-EllesmereUI.L("Ready Border")
-EllesmereUI.L("Ready Border Color")
-EllesmereUI.L("Enable Ready Border")
+EllesmereUI.L("Waiting Glow")
+EllesmereUI.L("Waiting Glow Color")
+EllesmereUI.L("Enable Waiting Glow")
 EllesmereUI.L("Ready Glow")
+EllesmereUI.L("Ready Glow Color")
+EllesmereUI.L("Enable Ready Glow")
 
 -- The options page pool (EllesmereUI_FramePool.lua): a frame made under a pool
 -- host (a kept menu) is handed out again reset to fresh; anywhere else this is
@@ -4053,20 +4055,27 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                       disabledTooltip="Choose an event-driven Timer Source first",
                                       get=function() return rawget(ss, "activeTimerCloseOnCast") == true end,
                                       set=function(v) EnsureSS(); ss.activeTimerCloseOnCast = v or nil; TimerChanged(row) end },
-                                    { type="toggle", label="Ready Border",
+                                    { type="dropdown", label="Waiting Glow",
+                                      values={ [0]="None", [1]="Pixel Glow", [3]="Action Button Glow",
+                                          [4]="Auto-Cast Shine", [2]="Shape Glow", [5]="GCD",
+                                          [6]="Modern WoW Glow", [7]="Classic WoW Glow" },
+                                      order={ 0, 1, 3, 4, 2, 5, 6, 7 },
                                       disabled=function() return rawget(ss, "activeTimerSource") == nil end,
                                       disabledTooltip="Choose a Timer Source first",
-                                      get=function() return rawget(ss, "activeTimerReadyBorder") == true end,
-                                      set=function(v) EnsureSS(); ss.activeTimerReadyBorder = v or nil; TimerChanged(row) end },
-                                    { type="colorpicker", label="Ready Border Color",
-                                      disabled=function() return rawget(ss, "activeTimerReadyBorder") ~= true end,
-                                      disabledTooltip="Enable Ready Border",
-                                      get=function() return rawget(ss, "activeTimerReadyR") or 0.1,
-                                          rawget(ss, "activeTimerReadyG") or 1,
-                                          rawget(ss, "activeTimerReadyB") or 0.2 end,
+                                      get=function() return tonumber(rawget(ss, "activeTimerWaitingGlow")) or 0 end,
+                                      set=function(v)
+                                          EnsureSS(); ss.activeTimerWaitingGlow = v ~= 0 and v or nil
+                                          TimerVisualChanged(row)
+                                      end },
+                                    { type="colorpicker", label="Waiting Glow Color",
+                                      disabled=function() return (tonumber(rawget(ss, "activeTimerWaitingGlow")) or 0) <= 0 end,
+                                      disabledTooltip="Enable Waiting Glow",
+                                      get=function() return rawget(ss, "activeTimerWaitingGlowR") or 1,
+                                          rawget(ss, "activeTimerWaitingGlowG") or 0.788,
+                                          rawget(ss, "activeTimerWaitingGlowB") or 0.137 end,
                                       set=function(r, g, b)
-                                          EnsureSS(); ss.activeTimerReadyR = r
-                                          ss.activeTimerReadyG = g; ss.activeTimerReadyB = b
+                                          EnsureSS(); ss.activeTimerWaitingGlowR = r
+                                          ss.activeTimerWaitingGlowG = g; ss.activeTimerWaitingGlowB = b
                                           TimerVisualChanged(row)
                                       end },
                                     { type="dropdown", label="Ready Glow",
@@ -4079,7 +4088,18 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                       get=function() return tonumber(rawget(ss, "activeTimerReadyGlow")) or 0 end,
                                       set=function(v)
                                           EnsureSS(); ss.activeTimerReadyGlow = v ~= 0 and v or nil
-                                          TimerChanged(row)
+                                          TimerVisualChanged(row)
+                                      end },
+                                    { type="colorpicker", label="Ready Glow Color",
+                                      disabled=function() return (tonumber(rawget(ss, "activeTimerReadyGlow")) or 0) <= 0 end,
+                                      disabledTooltip="Enable Ready Glow",
+                                      get=function() return rawget(ss, "activeTimerReadyGlowR") or 0.1,
+                                          rawget(ss, "activeTimerReadyGlowG") or 1,
+                                          rawget(ss, "activeTimerReadyGlowB") or 0.2 end,
+                                      set=function(r, g, b)
+                                          EnsureSS(); ss.activeTimerReadyGlowR = r
+                                          ss.activeTimerReadyGlowG = g; ss.activeTimerReadyGlowB = b
+                                          TimerVisualChanged(row)
                                       end },
                                 },
                             })

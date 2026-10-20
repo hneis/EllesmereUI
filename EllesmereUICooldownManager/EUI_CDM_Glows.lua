@@ -447,7 +447,11 @@ StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
     end
 
     overlay._glowActive = true
-    overlay:SetAlpha(1)
+    if opts and opts.timerGate then
+        overlay:SetAlpha(opts.finalAlpha)
+    else
+        overlay:SetAlpha(1)
+    end
     -- NEVER Show()/Hide() -- the overlay is always shown (created in DecorateFrame).
     -- Toggling visibility on a child of a Blizzard viewer frame triggers Layout hooks and causes position cascades.
 end
