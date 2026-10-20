@@ -17,16 +17,11 @@ EllesmereUI.L("Player Parry")
 EllesmereUI.L("After Cast")
 EllesmereUI.L("Close Timer After Cast")
 EllesmereUI.L("Choose an event-driven Timer Source first")
-EllesmereUI.L("Show Real Cooldown")
 EllesmereUI.L("Choose a Timer Source first")
-EllesmereUI.L("Real Cooldown Position")
-EllesmereUI.L("Real Cooldown Size")
-EllesmereUI.L("Enable Show Real Cooldown")
-EllesmereUI.L("Real Cooldown Color")
-EllesmereUI.L("Predictive Border")
-EllesmereUI.L("Cooldown Ends First")
-EllesmereUI.L("Active Window Ends First")
-EllesmereUI.L("Enable Predictive Border")
+EllesmereUI.L("Ready Border")
+EllesmereUI.L("Ready Border Color")
+EllesmereUI.L("Enable Ready Border")
+EllesmereUI.L("Ready Glow")
 
 -- The options page pool (EllesmereUI_FramePool.lua): a frame made under a pool
 -- host (a kept menu) is handed out again reset to fresh; anywhere else this is
@@ -4058,54 +4053,14 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                       disabledTooltip="Choose an event-driven Timer Source first",
                                       get=function() return rawget(ss, "activeTimerCloseOnCast") == true end,
                                       set=function(v) EnsureSS(); ss.activeTimerCloseOnCast = v or nil; TimerChanged(row) end },
-                                    { type="toggle", label="Show Real Cooldown",
+                                    { type="toggle", label="Ready Border",
                                       disabled=function() return rawget(ss, "activeTimerSource") == nil end,
                                       disabledTooltip="Choose a Timer Source first",
-                                      get=function() return rawget(ss, "activeTimerShowCooldown") == true end,
-                                      set=function(v) EnsureSS(); ss.activeTimerShowCooldown = v or nil; TimerChanged(row) end },
-                                    { type="dropdown", label="Real Cooldown Position",
-                                      values=durationPositionValues, order=durationPositionOrder,
-                                      disabled=function() return rawget(ss, "activeTimerShowCooldown") ~= true end,
-                                      disabledTooltip="Enable Show Real Cooldown",
-                                      get=function() return rawget(ss, "activeTimerCooldownPosition") or "top" end,
-                                      set=function(v) EnsureSS(); ss.activeTimerCooldownPosition = v; TimerVisualChanged(row) end },
-                                    { type="slider", label="Real Cooldown Size", min=6, max=30, step=1,
-                                      disabled=function() return rawget(ss, "activeTimerShowCooldown") ~= true end,
-                                      disabledTooltip="Enable Show Real Cooldown",
-                                      get=function() return tonumber(rawget(ss, "activeTimerCooldownSize")) or 10 end,
-                                      set=function(v) EnsureSS(); ss.activeTimerCooldownSize = v; TimerVisualChanged(row) end },
-                                    { type="slider", label="X Offset", min=-50, max=50, step=1,
-                                      disabled=function() return rawget(ss, "activeTimerShowCooldown") ~= true end,
-                                      disabledTooltip="Enable Show Real Cooldown",
-                                      get=function() return tonumber(rawget(ss, "activeTimerCooldownX")) or 0 end,
-                                      set=function(v) EnsureSS(); ss.activeTimerCooldownX = v; TimerVisualChanged(row) end },
-                                    { type="slider", label="Y Offset", min=-50, max=50, step=1,
-                                      disabled=function() return rawget(ss, "activeTimerShowCooldown") ~= true end,
-                                      disabledTooltip="Enable Show Real Cooldown",
-                                      get=function() return tonumber(rawget(ss, "activeTimerCooldownY")) or 0 end,
-                                      set=function(v) EnsureSS(); ss.activeTimerCooldownY = v; TimerVisualChanged(row) end },
-                                    { type="colorpicker", label="Real Cooldown Color",
-                                      disabled=function() return rawget(ss, "activeTimerShowCooldown") ~= true end,
-                                      disabledTooltip="Enable Show Real Cooldown",
-                                      get=function() return rawget(ss, "activeTimerCooldownR")
-                                              or (cdmBd and cdmBd.cooldownTextR) or 1,
-                                          rawget(ss, "activeTimerCooldownG")
-                                              or (cdmBd and cdmBd.cooldownTextG) or 1,
-                                          rawget(ss, "activeTimerCooldownB")
-                                              or (cdmBd and cdmBd.cooldownTextB) or 1 end,
-                                      set=function(r, g, b)
-                                          EnsureSS(); ss.activeTimerCooldownR = r
-                                          ss.activeTimerCooldownG = g; ss.activeTimerCooldownB = b
-                                          TimerVisualChanged(row)
-                                      end },
-                                    { type="toggle", label="Predictive Border",
-                                      disabled=function() return rawget(ss, "activeTimerSource") == nil end,
-                                      disabledTooltip="Choose a Timer Source first",
-                                      get=function() return rawget(ss, "activeTimerPredictBorder") == true end,
-                                      set=function(v) EnsureSS(); ss.activeTimerPredictBorder = v or nil; TimerChanged(row) end },
-                                    { type="colorpicker", label="Cooldown Ends First",
-                                      disabled=function() return rawget(ss, "activeTimerPredictBorder") ~= true end,
-                                      disabledTooltip="Enable Predictive Border",
+                                      get=function() return rawget(ss, "activeTimerReadyBorder") == true end,
+                                      set=function(v) EnsureSS(); ss.activeTimerReadyBorder = v or nil; TimerChanged(row) end },
+                                    { type="colorpicker", label="Ready Border Color",
+                                      disabled=function() return rawget(ss, "activeTimerReadyBorder") ~= true end,
+                                      disabledTooltip="Enable Ready Border",
                                       get=function() return rawget(ss, "activeTimerReadyR") or 0.1,
                                           rawget(ss, "activeTimerReadyG") or 1,
                                           rawget(ss, "activeTimerReadyB") or 0.2 end,
@@ -4114,16 +4069,17 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                           ss.activeTimerReadyG = g; ss.activeTimerReadyB = b
                                           TimerVisualChanged(row)
                                       end },
-                                    { type="colorpicker", label="Active Window Ends First",
-                                      disabled=function() return rawget(ss, "activeTimerPredictBorder") ~= true end,
-                                      disabledTooltip="Enable Predictive Border",
-                                      get=function() return rawget(ss, "activeTimerLateR") or 1,
-                                          rawget(ss, "activeTimerLateG") or 0.1,
-                                          rawget(ss, "activeTimerLateB") or 0.1 end,
-                                      set=function(r, g, b)
-                                          EnsureSS(); ss.activeTimerLateR = r
-                                          ss.activeTimerLateG = g; ss.activeTimerLateB = b
-                                          TimerVisualChanged(row)
+                                    { type="dropdown", label="Ready Glow",
+                                      values={ [0]="None", [1]="Pixel Glow", [3]="Action Button Glow",
+                                          [4]="Auto-Cast Shine", [2]="Shape Glow", [5]="GCD",
+                                          [6]="Modern WoW Glow", [7]="Classic WoW Glow" },
+                                      order={ 0, 1, 3, 4, 2, 5, 6, 7 },
+                                      disabled=function() return rawget(ss, "activeTimerSource") == nil end,
+                                      disabledTooltip="Choose a Timer Source first",
+                                      get=function() return tonumber(rawget(ss, "activeTimerReadyGlow")) or 0 end,
+                                      set=function(v)
+                                          EnsureSS(); ss.activeTimerReadyGlow = v ~= 0 and v or nil
+                                          TimerChanged(row)
                                       end },
                                 },
                             })

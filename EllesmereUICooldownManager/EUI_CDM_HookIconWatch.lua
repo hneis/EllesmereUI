@@ -361,7 +361,11 @@ function ns.CdmShouldHideCountdown(frame, baseHide)
     if not sid then return baseHide end
     local liveSid = sid
     if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
-        liveSid = C_SpellBook.FindSpellOverrideByID(sid) or sid
+        local override = C_SpellBook.FindSpellOverrideByID(sid)
+        if not (issecretvalue and issecretvalue(override))
+           and type(override) == "number" and override > 0 then
+            liveSid = override
+        end
     end
     -- Charge-spell test via static charge data (stable through the GCD).
     local ci = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(liveSid)
@@ -1345,6 +1349,45 @@ function ns.ReprimeNativeActiveTimerWatches()
         rec.initial = true
         UpdateNativeActiveTimer(frame)
     end
+end
+
+function ns.ShowNativeActiveTimerFrame(frame)
+    local fc = _ecmeFC[frame]
+    local barKey = fc and fc.barKey
+    if not (fc and barKey) then return end
+    local ss = ResolveSpellSettings(frame, fc.spellID, ns.GetBarSpellData(barKey), barKey)
+    local effect = ns.CdStateHideOf(ss, frame)
+    local mode = effect and ns.CD_STATE_HIDE[effect]
+    if not (mode and mode.base == "hiddenReady") then return end
+    local bd = barDataByKey and barDataByKey[barKey]
+    frame:SetAlpha(ns.IconShownAlpha(fc, bd))
+    fc._cdStateHidden = false
+    if ns.SetCdStateShiftHidden then ns.SetCdStateShiftHidden(fc, false) end
+end
+
+function ns.HideNativeActiveTimerFrameIfReady(frame)
+    local fc = _ecmeFC[frame]
+    local sid = fc and fc.spellID
+    local barKey = fc and fc.barKey
+    if not (sid and barKey) then return end
+    local ss = ResolveSpellSettings(frame, sid, ns.GetBarSpellData(barKey), barKey)
+    local effect = ns.CdStateHideOf(ss, frame)
+    local mode = effect and ns.CD_STATE_HIDE[effect]
+    if not (mode and mode.base == "hiddenReady") then return end
+    local liveSid = sid
+    if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
+        local override = C_SpellBook.FindSpellOverrideByID(sid)
+        if not (issecretvalue and issecretvalue(override))
+           and type(override) == "number" and override > 0 then
+            liveSid = override
+        end
+    end
+    local onCD = ns.CdmOnRealCD(frame, C_Spell.GetSpellCooldown(liveSid))
+    local hide = ns.CdmCdStateReady(liveSid, onCD, ss and ss.chargeHideUntilSpent)
+    if not hide then return end
+    frame:SetAlpha(0)
+    fc._cdStateHidden = true
+    if ns.SetCdStateShiftHidden then ns.SetCdStateShiftHidden(fc, mode.shift or false) end
 end
 
 -- Re-run only the visibility mode whose ready answer a custom active window
