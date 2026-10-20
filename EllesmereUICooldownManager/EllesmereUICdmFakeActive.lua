@@ -1138,10 +1138,12 @@ end
 
 local function TimerSpellUsable(rule)
     local spellID = TimerSpellID(rule)
-    if not (spellID and C_Spell and C_Spell.IsSpellUsable) then return false end
-    local usable = C_Spell.IsSpellUsable(spellID)
-    if issecretvalue and issecretvalue(usable) then return false end
-    return usable == true
+    if not (spellID and C_Spell and C_Spell.IsSpellUsable) then return false, false end
+    local usable, insufficientPower = C_Spell.IsSpellUsable(spellID)
+    if issecretvalue and (issecretvalue(usable) or issecretvalue(insufficientPower)) then
+        return false, false
+    end
+    return usable == true, insufficientPower == true
 end
 
 local function ValidityCurve(win, shownAlpha)
@@ -1222,7 +1224,10 @@ ApplyTimerPresentation = function(iconFrame, o, rule, win, ss, bd)
     local usefulOnly = ss and ss.activeTimerUsefulOnly == true
     local duration, cooldownState
     if usefulOnly then duration, cooldownState = TimerCooldownDuration(rule) end
-    local usable = TimerSpellUsable(rule) and (not usefulOnly or cooldownState == "ready")
+    local spellUsable, insufficientPower = TimerSpellUsable(rule)
+    local usable = spellUsable and (not usefulOnly or cooldownState == "ready")
+    local resourceTimer = ss and ss.activeTimerShowResourceTimer == true
+        and insufficientPower and (not usefulOnly or cooldownState == "ready")
     local fc = ns._ecmeFC and ns._ecmeFC[iconFrame]
     local validity = 1
     if usefulOnly then
@@ -1234,8 +1239,8 @@ ApplyTimerPresentation = function(iconFrame, o, rule, win, ss, bd)
         if fc then fc._cdStateHidden = true end
     end
     if not usefulOnly then
-        o.icon:SetAlpha(usable and 1 or 0)
-        o.cd:SetAlpha(usable and 1 or 0)
+        o.icon:SetAlpha((usable or resourceTimer) and 1 or 0)
+        o.cd:SetAlpha((usable or resourceTimer) and 1 or 0)
         o._timerDisplayMode = "window"
         local cr, cg, cb, ca = ResolveSwipeColor(ss)
         o.cd:SetSwipeColor(cr, cg, cb, ca)
@@ -1253,17 +1258,24 @@ ApplyTimerPresentation = function(iconFrame, o, rule, win, ss, bd)
         end
         return
     end
-    if usable then
+    if usable or resourceTimer then
         o.icon:SetAlpha(1)
         o.cd:SetAlpha(1)
         o._timerDisplayMode = "window"
         local cr, cg, cb, ca = ResolveSwipeColor(ss)
         o.cd:SetSwipeColor(cr, cg, cb, ca)
         o.cd:SetCooldown(win.start, win.dur)
-        TimerGlow(o, ss and ss.activeTimerReadyGlow,
-            (ss and ss.activeTimerReadyGlowR) or 0.1,
-            (ss and ss.activeTimerReadyGlowG) or 1,
-            (ss and ss.activeTimerReadyGlowB) or 0.2, 1)
+        if usable then
+            TimerGlow(o, ss and ss.activeTimerReadyGlow,
+                (ss and ss.activeTimerReadyGlowR) or 0.1,
+                (ss and ss.activeTimerReadyGlowG) or 1,
+                (ss and ss.activeTimerReadyGlowB) or 0.2, 1)
+        else
+            TimerGlow(o, ss and ss.activeTimerWaitingGlow,
+                (ss and ss.activeTimerWaitingGlowR) or 1,
+                (ss and ss.activeTimerWaitingGlowG) or 0.788,
+                (ss and ss.activeTimerWaitingGlowB) or 0.137, validity)
+        end
     else
         o.icon:SetAlpha(validity)
         if cooldownState == "running" and duration then

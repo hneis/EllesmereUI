@@ -17,6 +17,7 @@ EllesmereUI.L("Player Parry")
 EllesmereUI.L("After Cast")
 EllesmereUI.L("Close Timer After Cast")
 EllesmereUI.L("Show Useful Window Only")
+EllesmereUI.L("Show Timer While Resource-Limited")
 EllesmereUI.L("Choose an event-driven Timer Source first")
 EllesmereUI.L("Choose a Timer Source first")
 EllesmereUI.L("Waiting Glow")
@@ -4061,6 +4062,11 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                       disabledTooltip="Choose a Timer Source first",
                                       get=function() return rawget(ss, "activeTimerUsefulOnly") == true end,
                                       set=function(v) EnsureSS(); ss.activeTimerUsefulOnly = v or nil; TimerChanged(row) end },
+                                    { type="toggle", label="Show Timer While Resource-Limited",
+                                      disabled=function() return rawget(ss, "activeTimerSource") == nil end,
+                                      disabledTooltip="Choose a Timer Source first",
+                                      get=function() return rawget(ss, "activeTimerShowResourceTimer") == true end,
+                                      set=function(v) EnsureSS(); ss.activeTimerShowResourceTimer = v or nil; TimerVisualChanged(row) end },
                                     { type="dropdown", label="Waiting Glow",
                                       values={ [0]="None", [1]="Pixel Glow", [3]="Action Button Glow",
                                           [4]="Auto-Cast Shine", [2]="Shape Glow", [5]="GCD",
