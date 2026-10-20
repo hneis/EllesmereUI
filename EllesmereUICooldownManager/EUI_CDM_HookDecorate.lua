@@ -1248,6 +1248,17 @@ local function DecorateFrame(frame, barData)
                 if bk2:sub(1, 7) == "__ghost" then return end
                 -- FocusKick icon alpha is owned by SetFocusKickAlpha only.
                 if bk2 == ns.FOCUSKICK_BAR_KEY then return end
+                if ns.NativeActiveTimerOwnsVisibility
+                   and ns.NativeActiveTimerOwnsVisibility(frame) then
+                    if fd._cdStateGlowOn then
+                        ns.StopCdGlow(fd)
+                        fd._cdStateGlowOn = false
+                    end
+                    if ns.QueueNativeActiveTimerReapply then
+                        ns.QueueNativeActiveTimerReapply(frame)
+                    end
+                    return
+                end
                 -- Preset frames (trinket/racial/potion/custom spell) own their cd-state
                 -- through the Fake-Active engine, which reads the ITEM/racial cooldown.
                 -- GetSpellCooldown cannot read a negative item key, so this spell path

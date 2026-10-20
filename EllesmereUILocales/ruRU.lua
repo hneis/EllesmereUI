@@ -417,6 +417,7 @@ L["Native Active State"]           = "Нативное активное сост
 L["Player Parry"]                  = "Парирование игрока"
 L["After Cast"]                    = "После применения"
 L["Close Timer After Cast"]        = "Закрывать таймер после применения"
+L["Show Useful Window Only"]       = "Показывать только полезное окно"
 L["Choose an event-driven Timer Source first"] = "Сначала выберите событийный источник таймера"
 L["Choose a Timer Source first"]   = "Сначала выберите источник таймера"
 L["Waiting Glow"]                  = "Свечение ожидающего прока"

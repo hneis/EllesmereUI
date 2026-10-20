@@ -256,6 +256,9 @@ _CDMApplyVisibility = function()
                             elseif not (icfc and (icfc._cdStateHidden or icfc._missingActiveHidden)) then
                                 ic:SetAlpha(visAlpha)
                             end
+                            if ns.FakeActive_ReapplyNativeTimerFrame then
+                                ns.FakeActive_ReapplyNativeTimerFrame(ic)
+                            end
                         end
                     end
                 end
@@ -339,6 +342,9 @@ local function ApplyBarOpacity(barKey)
                     ic:SetAlpha(0)
                 elseif not (icfc and (icfc._cdStateHidden or icfc._missingActiveHidden)) then
                     ic:SetAlpha(a)
+                end
+                if ns.FakeActive_ReapplyNativeTimerFrame then
+                    ns.FakeActive_ReapplyNativeTimerFrame(ic)
                 end
             end
         end

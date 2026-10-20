@@ -1169,6 +1169,13 @@ local function ArmCdStateEval(frame, fd, cse, cseShift, lowAlpha, hideUntilSpent
             local sid3 = fc3 and fc3.spellID
             local bk3 = fc3 and fc3.barKey
             if not sid3 or not bk3 then return end
+            if ns.NativeActiveTimerOwnsVisibility
+               and ns.NativeActiveTimerOwnsVisibility(frame) then
+                if ns.FakeActive_ReapplyNativeTimerFrame then
+                    ns.FakeActive_ReapplyNativeTimerFrame(frame)
+                end
+                return
+            end
             -- Stance Bar: hidden on (or off) a stance bar page whatever the
             -- cooldown, with its own Shift Icons choice.
             if self.stance then
@@ -1269,6 +1276,21 @@ end
 
 ns.NativeActiveTimerIntegrity = UpdateNativeActiveTimer
 
+local nativeTimerUpdates = setmetatable({}, { __mode = "k" })
+local nativeTimerUpdateQueued = false
+local function QueueNativeActiveTimerUpdate(frame)
+    nativeTimerUpdates[frame] = true
+    if nativeTimerUpdateQueued then return end
+    nativeTimerUpdateQueued = true
+    C_Timer.After(0, function()
+        nativeTimerUpdateQueued = false
+        for queuedFrame in pairs(nativeTimerUpdates) do
+            nativeTimerUpdates[queuedFrame] = nil
+            UpdateNativeActiveTimer(queuedFrame)
+        end
+    end)
+end
+
 local function SetNativeActiveTimerEvents(on)
     local events = ns._nativeActiveTimerEventFrame
     if on and not events then
@@ -1331,7 +1353,7 @@ function ns.WatchNativeActiveTimerIfEnabled(frame)
     if cd and not ns._nativeActiveTimerHooked[frame] then
         ns._nativeActiveTimerHooked[frame] = true
         hooksecurefunc(cd, "SetSwipeColor", function()
-            UpdateNativeActiveTimer(frame)
+            QueueNativeActiveTimerUpdate(frame)
         end)
     end
     UpdateNativeActiveTimer(frame)
@@ -1359,9 +1381,16 @@ function ns.ShowNativeActiveTimerFrame(frame)
     local effect = ns.CdStateHideOf(ss, frame)
     local mode = effect and ns.CD_STATE_HIDE[effect]
     if not (mode and mode.base == "hiddenReady") then return end
-    local bd = barDataByKey and barDataByKey[barKey]
-    frame:SetAlpha(ns.IconShownAlpha(fc, bd))
+    frame:SetAlpha(ns.IconShownAlpha(fc))
     fc._cdStateHidden = false
+    if ns.SetCdStateShiftHidden then ns.SetCdStateShiftHidden(fc, false) end
+end
+
+function ns.HideNativeActiveTimerFrame(frame)
+    local fc = _ecmeFC[frame]
+    if not fc then return end
+    frame:SetAlpha(0)
+    fc._cdStateHidden = true
     if ns.SetCdStateShiftHidden then ns.SetCdStateShiftHidden(fc, false) end
 end
 

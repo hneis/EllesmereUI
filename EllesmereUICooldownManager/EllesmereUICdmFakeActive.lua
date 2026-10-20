@@ -106,6 +106,8 @@ local NativeTimers = {
     bySettings = setmetatable({}, { __mode = "k" }),
     owners = setmetatable({}, { __mode = "k" }),
     procFrames = setmetatable({}, { __mode = "k" }),
+    reapplyFrames = setmetatable({}, { __mode = "k" }),
+    reapplyQueued = false,
     needUsable = false,
     needParry = false,
     needCooldownSync = false,
@@ -242,6 +244,22 @@ GetOverlay = function(iconFrame)
     cd:SetDrawBling(false)
     cd:SetHideCountdownNumbers(false)
     cd:SetSwipeTexture("Interface\\AddOns\\EllesmereUI\\media\\white-square.png")
+    cd:SetScript("OnCooldownDone", function()
+        local rule = o._rule
+        local win = rule and _windows[rule]
+        if o._timerDisplayMode == "cooldown" and rule and rule.nativeTimer
+           and win and ApplyTimerPresentation then
+            o._timerDisplayMode = "cooldownDone"
+            C_Timer.After(0, function()
+                local liveRule = o._rule
+                local liveWindow = liveRule and _windows[liveRule]
+                if liveRule ~= rule or not liveWindow then return end
+                local fc = ns._ecmeFC and ns._ecmeFC[iconFrame]
+                local bd = fc and fc.barKey and ns.barDataByKey and ns.barDataByKey[fc.barKey]
+                ApplyTimerPresentation(iconFrame, o, rule, liveWindow, o._ss, bd)
+            end)
+        end
+    end)
     o.cd = cd
 
     -- Own glow frame for ns.ApplyActiveOverlays (never collides with the real
@@ -558,13 +576,18 @@ end
 
 SetNativeOwner = function(frame, rule, closingRule)
     if closingRule and NativeTimers.owners[frame] ~= closingRule then return end
+    if rule and NativeTimers.owners[frame] == rule then return end
     NativeTimers.owners[frame] = rule
+    local usefulClose = not rule and closingRule and closingRule.settings
+        and closingRule.settings.activeTimerUsefulOnly
     if rule and ns.ShowNativeActiveTimerFrame then
         ns.ShowNativeActiveTimerFrame(frame)
+    elseif usefulClose and ns.HideNativeActiveTimerFrame then
+        ns.HideNativeActiveTimerFrame(frame)
     elseif not rule and ns.HideNativeActiveTimerFrameIfReady then
         ns.HideNativeActiveTimerFrameIfReady(frame)
     end
-    if ns.ReevaluateNativeActiveTimerVisibility then
+    if not usefulClose and ns.ReevaluateNativeActiveTimerVisibility then
         ns.ReevaluateNativeActiveTimerVisibility(frame)
     end
 end
@@ -579,10 +602,50 @@ function ns.FakeActive_KeepsFrameVisible(frame, spellID)
     return ss == rule.settings
 end
 
+function ns.NativeActiveTimerOwnsVisibility(frame)
+    local fc = ns._ecmeFC and ns._ecmeFC[frame]
+    if not (fc and fc.spellID and fc.barKey and ns.ResolveSpellSettings) then return false end
+    local ss = ns.ResolveSpellSettings(frame, fc.spellID,
+        ns.GetBarSpellData(fc.barKey), fc.barKey)
+    return _overlays[frame] ~= nil and ss and rawget(ss, "activeTimerSource") ~= nil
+        and (tonumber(rawget(ss, "activeTimerDuration")) or 0) > 0
+        and ss.activeTimerUsefulOnly == true
+end
+
+function ns.FakeActive_ReapplyNativeTimerFrame(frame)
+    local rule = NativeTimers.owners[frame]
+    local win = rule and _windows[rule]
+    if rule and win then
+        ApplyToFrame(frame, rule, win)
+    elseif ns.NativeActiveTimerOwnsVisibility(frame)
+       and ns.HideNativeActiveTimerFrame then
+        ns.HideNativeActiveTimerFrame(frame)
+    end
+end
+
+function ns.QueueNativeActiveTimerReapply(frame)
+    NativeTimers.reapplyFrames[frame] = true
+    if NativeTimers.reapplyQueued then return end
+    NativeTimers.reapplyQueued = true
+    C_Timer.After(0, function()
+        NativeTimers.reapplyQueued = false
+        for queuedFrame in pairs(NativeTimers.reapplyFrames) do
+            NativeTimers.reapplyFrames[queuedFrame] = nil
+            ns.FakeActive_ReapplyNativeTimerFrame(queuedFrame)
+        end
+    end)
+end
+
 function ns.FakeActive_PrepareNativeFrame(frame, settings)
-    if not NativeTimers.bySettings[settings] or _overlays[frame] then return end
-    if InCombatLockdown and InCombatLockdown() then return end
-    GetOverlay(frame)
+    if not NativeTimers.bySettings[settings] then return end
+    if not _overlays[frame] then
+        if InCombatLockdown and InCombatLockdown() then return end
+        GetOverlay(frame)
+    end
+    if settings.activeTimerUsefulOnly and not NativeTimers.owners[frame]
+       and ns.HideNativeActiveTimerFrame then
+        ns.HideNativeActiveTimerFrame(frame)
+    end
 end
 
 function ns.FakeActive_ReleaseNativeFrame(frame)
@@ -605,6 +668,23 @@ local function PrepareNativeRuleFrames(rule)
                    and ns.FakeActive_ProcState then
                     ns.FakeActive_ProcState(frame, nil)
                 end
+            end
+        end
+    end
+end
+
+local function HideUsefulRuleFrames(rule)
+    if not (rule.settings and rule.settings.activeTimerUsefulOnly
+            and ns.HideNativeActiveTimerFrame) then return end
+    local icons = ns.cdmBarIcons
+    local FCt = ns._ecmeFC
+    if not (icons and FCt) then return end
+    for _, list in pairs(icons) do
+        for i = 1, #list do
+            local frame = list[i]
+            if _overlays[frame] and RuleMatchesFrame(rule, frame, FCt)
+               and not NativeTimers.owners[frame] then
+                ns.HideNativeActiveTimerFrame(frame)
             end
         end
     end
@@ -1064,45 +1144,51 @@ local function TimerSpellUsable(rule)
     return usable == true
 end
 
-local function ValidityCurve(win)
+local function ValidityCurve(win, shownAlpha)
     if not (C_CurveUtil and C_CurveUtil.CreateCurve and Enum and Enum.LuaCurveType) then
         return nil
     end
     local remaining = math.max(0.001, win.expiry - GetTime())
     local curve = C_CurveUtil.CreateCurve()
     curve:SetType(Enum.LuaCurveType.Step)
-    curve:AddPoint(0, 1)
+    curve:AddPoint(0, shownAlpha)
     curve:AddPoint(remaining, 0)
     return curve
 end
 
-local function WindowValidityAlpha(rule, win)
-    if win.validitySet then return win.validityAlpha end
-    win.validitySet = true
-    local alpha = 0
+local function TimerCooldownDuration(rule)
     local spellID = TimerSpellID(rule)
     local info = spellID and C_Spell and C_Spell.GetSpellCooldown
         and C_Spell.GetSpellCooldown(spellID)
-    if info and not (issecretvalue and issecretvalue(info)) then
-        local active, onGCD = info.isActive, info.isOnGCD
-        if not (issecretvalue and (issecretvalue(active) or issecretvalue(onGCD))) then
-            if active == true then
-                if onGCD ~= true then rule.cooldownSeen = true end
-                if not (onGCD == true and rule.cooldownExpected and not rule.cooldownSeen) then
-                    local duration = C_Spell.GetSpellCooldownDuration
-                        and C_Spell.GetSpellCooldownDuration(spellID, onGCD ~= true)
-                    local curve = ValidityCurve(win)
-                    if duration and curve and duration.EvaluateRemainingDuration then
-                        alpha = duration:EvaluateRemainingDuration(curve, 0)
-                    end
-                end
-            elseif not rule.cooldownExpected or rule.cooldownSeen then
-                rule.cooldownExpected, rule.cooldownSeen = nil, nil
-                alpha = 1
-            end
-        end
+    if not info or (issecretvalue and issecretvalue(info)) then return nil, "unknown" end
+    local active, onGCD = info.isActive, info.isOnGCD
+    if issecretvalue and (issecretvalue(active) or issecretvalue(onGCD)) then
+        return nil, "unknown"
     end
-    win.validityAlpha = alpha
+    if active == true then
+        if onGCD ~= true then rule.cooldownSeen = true end
+        if onGCD == true and rule.cooldownExpected and not rule.cooldownSeen then
+            return nil, "unknown"
+        end
+        local duration = C_Spell.GetSpellCooldownDuration
+            and C_Spell.GetSpellCooldownDuration(spellID, onGCD ~= true)
+        return duration, duration and "running" or "unknown"
+    end
+    if rule.cooldownExpected and not rule.cooldownSeen then return nil, "unknown" end
+    rule.cooldownExpected, rule.cooldownSeen = nil, nil
+    return nil, "ready"
+end
+
+local function WindowValidityAlpha(win, shownAlpha, duration, state)
+    local alpha = 0
+    if state == "running" then
+        local curve = ValidityCurve(win, shownAlpha)
+        if duration and curve and duration.EvaluateRemainingDuration then
+            alpha = duration:EvaluateRemainingDuration(curve, 0)
+        end
+    elseif state == "ready" then
+        alpha = shownAlpha
+    end
     return alpha
 end
 
@@ -1133,20 +1219,71 @@ local function TimerGlow(o, style, r, g, b, alpha)
 end
 
 ApplyTimerPresentation = function(iconFrame, o, rule, win, ss, bd)
-    local usable = TimerSpellUsable(rule)
-    o.icon:SetAlpha(usable and 1 or 0)
-    o.cd:SetAlpha(usable and 1 or 0)
+    local usefulOnly = ss and ss.activeTimerUsefulOnly == true
+    local duration, cooldownState
+    if usefulOnly then duration, cooldownState = TimerCooldownDuration(rule) end
+    local usable = TimerSpellUsable(rule) and (not usefulOnly or cooldownState == "ready")
+    local fc = ns._ecmeFC and ns._ecmeFC[iconFrame]
+    local validity = 1
+    if usefulOnly then
+        local baseAlpha = ns.IconShownAlpha and ns.IconShownAlpha(fc) or 1
+        validity = WindowValidityAlpha(win, 1, duration, cooldownState)
+        local frameValidity = baseAlpha == 0 and 0
+            or WindowValidityAlpha(win, baseAlpha, duration, cooldownState)
+        iconFrame:SetAlpha(usable and baseAlpha or frameValidity)
+        if fc then fc._cdStateHidden = true end
+    end
+    if not usefulOnly then
+        o.icon:SetAlpha(usable and 1 or 0)
+        o.cd:SetAlpha(usable and 1 or 0)
+        o._timerDisplayMode = "window"
+        local cr, cg, cb, ca = ResolveSwipeColor(ss)
+        o.cd:SetSwipeColor(cr, cg, cb, ca)
+        o.cd:SetCooldown(win.start, win.dur)
+        if usable then
+            TimerGlow(o, ss and ss.activeTimerReadyGlow,
+                (ss and ss.activeTimerReadyGlowR) or 0.1,
+                (ss and ss.activeTimerReadyGlowG) or 1,
+                (ss and ss.activeTimerReadyGlowB) or 0.2, 1)
+        else
+            TimerGlow(o, ss and ss.activeTimerWaitingGlow,
+                (ss and ss.activeTimerWaitingGlowR) or 1,
+                (ss and ss.activeTimerWaitingGlowG) or 0.788,
+                (ss and ss.activeTimerWaitingGlowB) or 0.137, 1)
+        end
+        return
+    end
     if usable then
+        o.icon:SetAlpha(1)
+        o.cd:SetAlpha(1)
+        o._timerDisplayMode = "window"
+        local cr, cg, cb, ca = ResolveSwipeColor(ss)
+        o.cd:SetSwipeColor(cr, cg, cb, ca)
+        o.cd:SetCooldown(win.start, win.dur)
         TimerGlow(o, ss and ss.activeTimerReadyGlow,
             (ss and ss.activeTimerReadyGlowR) or 0.1,
             (ss and ss.activeTimerReadyGlowG) or 1,
             (ss and ss.activeTimerReadyGlowB) or 0.2, 1)
     else
+        o.icon:SetAlpha(validity)
+        if cooldownState == "running" and duration then
+            o._timerDisplayMode = "cooldown"
+            o.cd:SetCooldownFromDurationObject(duration, true)
+            o.cd:SetSwipeColor(0, 0, 0, (bd and bd.swipeAlpha) or 0.7)
+            o.cd:SetAlpha(validity)
+            if ns.StyleOverlayCooldownText then
+                ns.StyleOverlayCooldownText(o.cd, bd, ss, iconFrame:GetScale())
+            end
+        else
+            o._timerDisplayMode = nil
+            o.cd:SetAlpha(0)
+            o.cd:Clear()
+        end
         TimerGlow(o, ss and ss.activeTimerWaitingGlow,
             (ss and ss.activeTimerWaitingGlowR) or 1,
             (ss and ss.activeTimerWaitingGlowG) or 0.788,
             (ss and ss.activeTimerWaitingGlowB) or 0.137,
-            WindowValidityAlpha(rule, win))
+            validity)
     end
 end
 
@@ -1214,7 +1351,7 @@ local function RefreshOpenNativeReadyEffects()
     end
 end
 
-local function SyncNativeCooldownState()
+local function SyncNativeCooldownState(settled)
     for i = 1, #NativeTimers.rules do
         local rule = NativeTimers.rules[i]
         if rule.cooldownExpected then
@@ -1226,7 +1363,7 @@ local function SyncNativeCooldownState()
                 if not (issecretvalue and (issecretvalue(active) or issecretvalue(onGCD))) then
                     if active == true and onGCD ~= true then
                         rule.cooldownSeen = true
-                    elseif active == false then
+                    elseif active == false and (rule.cooldownSeen or settled) then
                         rule.cooldownExpected, rule.cooldownSeen = nil, nil
                     end
                 end
@@ -1234,7 +1371,6 @@ local function SyncNativeCooldownState()
         end
         local win = _windows[rule]
         if win then
-            win.validitySet, win.validityAlpha = nil, nil
             ApplyRule(rule, win)
         end
     end
@@ -1345,6 +1481,7 @@ OnEvent = function(self, event, unit, updateInfo, spellID)
         end
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         _lastCast = spellID
+        local nativeCastMatched = false
         if spellID then
             for i = 1, #NativeTimers.rules do
                 local rule = NativeTimers.rules[i]
@@ -1354,6 +1491,7 @@ OnEvent = function(self, event, unit, updateInfo, spellID)
                     if spells[j] == spellID then matches = true; break end
                 end
                 if matches then
+                    nativeCastMatched = true
                     rule.cooldownExpected, rule.cooldownSeen = true, nil
                     if rule.source == "cast" then
                         local win = CastWindow(rule)
@@ -1372,8 +1510,11 @@ OnEvent = function(self, event, unit, updateInfo, spellID)
             end
         end
         for i = 1, #_customRules do EvalCustom(_customRules[i]) end
+        if nativeCastMatched and C_Timer then
+            C_Timer.After(0, function() SyncNativeCooldownState(true) end)
+        end
     elseif event == "SPELL_UPDATE_COOLDOWN" then
-        SyncNativeCooldownState()
+        SyncNativeCooldownState(false)
     elseif event == "PLAYER_EQUIPMENT_CHANGED" then
         -- The key map covers every equipment slot, so ANY swap can stale it --
         -- refresh unconditionally. It is a wipe plus one lookup per slot on an
@@ -2070,7 +2211,7 @@ function ns.FakeActive_Rearm()
     CloseAll()
     wipe(_rules); wipe(_auraRules); wipe(_customRules); wipe(_castMap); wipe(_cdStateRules)
     wipe(NativeTimers.rules); wipe(NativeTimers.bySettings); wipe(NativeTimers.procFrames)
-    wipe(NativeTimers.owners)
+    wipe(NativeTimers.owners); wipe(NativeTimers.reapplyFrames)
     NativeTimers.needUsable = false
     NativeTimers.needParry = false
     NativeTimers.needCooldownSync = false
@@ -2128,6 +2269,7 @@ function ns.FakeActive_Rearm()
                 if source == "parry" then NativeTimers.needParry = true end
                 _needCast = true
                 PrepareNativeRuleFrames(rule)
+                HideUsefulRuleFrames(rule)
             end
         end
     end

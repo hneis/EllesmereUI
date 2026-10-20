@@ -1049,6 +1049,8 @@ local function RefreshCDMIconAppearance(barKey)
             -- Shared resolver: direct hit + full identity/override matching
             -- against the family store, with bar-tier fallback.
             local csSs = ns.ResolveSpellSettings and ns.ResolveSpellSettings(icon, csSid, csSd, csBk)
+            local timerOwnsVisibility = ns.NativeActiveTimerOwnsVisibility
+                and ns.NativeActiveTimerOwnsVisibility(icon)
             -- The effect is a hide and a glow, each run on its own below.
             local cse, csGlow = ns.CdStateOf(csSs, icon)
             -- The hide effects run as their base mode plus flags (ns.CD_STATE_HIDE: Shift Icons, Hidden Until Usable, Hidden Outside Form/Stance), so the branches below stay as-is.
@@ -1062,7 +1064,7 @@ local function RefreshCDMIconAppearance(barKey)
             if stance and cse ~= "hiddenOnCD" and cse ~= "hiddenReady" and cse ~= "lowerAlphaOnCD" then
                 cse, stanceOnly = "hiddenOnCD", true
             end
-            if cse or csGlow then
+            if not timerOwnsVisibility and (cse or csGlow) then
                 local csLive = csSid
                 if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
                     csLive = C_SpellBook.FindSpellOverrideByID(csSid) or csSid
@@ -1178,7 +1180,9 @@ local function RefreshCDMIconAppearance(barKey)
                 end
             elseif fc and (fc._cdStateHidden or fc._cdStateShiftHidden) then
                 -- A preset keeps its hidden state from the Fake-Active engine (its cdState lives in customActiveStates, not per-bar spellSettings), so don't clear it here or the icon flashes visible.
-                if not (ns.PresetHasCdState and ns.PresetHasCdState(icon)) then
+                if not (ns.PresetHasCdState and ns.PresetHasCdState(icon))
+                   and not (ns.NativeActiveTimerOwnsVisibility
+                            and ns.NativeActiveTimerOwnsVisibility(icon)) then
                     fc._cdStateHidden = false
                     icon:SetAlpha(IconShownAlpha(fc, barData))
                     if ns.SetCdStateShiftHidden then ns.SetCdStateShiftHidden(fc, false) end
