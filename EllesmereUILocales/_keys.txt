@@ -286,11 +286,10 @@ Checked stats show in the on-screen block.
 Checked transforms are removed automatically when applied to you.
 Choose Buff
 Choose Icon
-Choose Native Active State first
 Choose Zones
 Choose a Timer Source first
 Choose a buff from the bar menu
-Choose a proc-driven Timer Source first
+Choose an event-driven Timer Source first
 Choose the specs this action menu works in.
 Choose which addons to import. Any addons not included will use your active profile's settings in the new profile.
 Choose which addons to include in your exported profile. Check everything for a full profile export.
@@ -943,6 +942,7 @@ Pick up an item, then press + to pin it
 Pick up an item, then press the coin to mark it as junk
 Pinned Items
 Place in Bags
+Player Parry
 Playstyle
 Please enter a name.
 Points spent in %1$s Talents: %2$s

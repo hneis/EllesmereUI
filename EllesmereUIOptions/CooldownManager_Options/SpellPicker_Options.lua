@@ -13,10 +13,10 @@ EllesmereUI.L("Active State Timer")
 EllesmereUI.L("Timer Source")
 EllesmereUI.L("Native Active State")
 EllesmereUI.L("Proc Glow")
+EllesmereUI.L("Player Parry")
 EllesmereUI.L("After Cast")
 EllesmereUI.L("Close Timer After Cast")
-EllesmereUI.L("Choose Native Active State first")
-EllesmereUI.L("Choose a proc-driven Timer Source first")
+EllesmereUI.L("Choose an event-driven Timer Source first")
 EllesmereUI.L("Show Real Cooldown")
 EllesmereUI.L("Choose a Timer Source first")
 EllesmereUI.L("Real Cooldown Position")
@@ -4027,8 +4027,9 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                 frameStrata = "FULLSCREEN_DIALOG", frameLevel = 350,
                                 rows = {
                                     { type="dropdown", label="Timer Source",
-                                      values={ off="Off", native="Native Active State", proc="Proc Glow", cast="After Cast" },
-                                      order={ "off", "native", "proc", "cast" },
+                                      values={ off="Off", native="Native Active State", proc="Proc Glow",
+                                          parry="Player Parry", cast="After Cast" },
+                                      order={ "off", "native", "proc", "parry", "cast" },
                                       get=function() return rawget(ss, "activeTimerSource") or "off" end,
                                       set=function(v)
                                           EnsureSS()
@@ -4052,8 +4053,9 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                       disabled=function()
                                           local source = rawget(ss, "activeTimerSource")
                                           return source ~= "native" and source ~= "proc"
+                                              and source ~= "parry"
                                       end,
-                                      disabledTooltip="Choose a proc-driven Timer Source first",
+                                      disabledTooltip="Choose an event-driven Timer Source first",
                                       get=function() return rawget(ss, "activeTimerCloseOnCast") == true end,
                                       set=function(v) EnsureSS(); ss.activeTimerCloseOnCast = v or nil; TimerChanged(row) end },
                                     { type="toggle", label="Show Real Cooldown",

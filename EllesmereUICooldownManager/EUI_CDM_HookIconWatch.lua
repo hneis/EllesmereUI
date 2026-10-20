@@ -1300,7 +1300,8 @@ function ns.WatchNativeActiveTimerIfEnabled(frame)
     local ss = ResolveSpellSettings(frame, sid, ns.GetBarSpellData(barKey), barKey)
     local source = ss and rawget(ss, "activeTimerSource")
     local duration = ss and tonumber(rawget(ss, "activeTimerDuration")) or 0
-    if (source == "native" or source == "proc" or source == "cast") and duration > 0
+    if (source == "native" or source == "proc"
+        or source == "parry" or source == "cast") and duration > 0
        and ns.FakeActive_PrepareNativeFrame then
         ns.FakeActive_PrepareNativeFrame(frame, ss)
     end

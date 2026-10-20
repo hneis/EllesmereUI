@@ -107,6 +107,7 @@ local NativeTimers = {
     owners = setmetatable({}, { __mode = "k" }),
     procFrames = setmetatable({}, { __mode = "k" }),
     needCooldown = false,
+    needParry = false,
 }
 
 -- Cooldown-state effects (continuous, cooldown-driven; presets only).
@@ -1307,6 +1308,18 @@ OnEvent = function(self, event, unit, updateInfo, spellID)
                 QueueFormAuraEval()
             end
         end
+    elseif event == "UNIT_COMBAT" then
+        local action = updateInfo
+        if issecretvalue and issecretvalue(action) then return end
+        if unit == "player" and action == "PARRY" then
+            for i = 1, #NativeTimers.rules do
+                local rule = NativeTimers.rules[i]
+                if rule.source == "parry" then
+                    local win = CastWindow(rule)
+                    if win then OpenWindow(rule, win) end
+                end
+            end
+        end
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         _lastCast = spellID
         if spellID then
@@ -1372,13 +1385,16 @@ OnEvent = function(self, event, unit, updateInfo, spellID)
 end
 
 UpdateListeners = function()
-    if _needAura or _needCast or _hasUserRules or NativeTimers.needCooldown then
+    if _needAura or _needCast or _hasUserRules
+       or NativeTimers.needCooldown or NativeTimers.needParry then
         if not _events then
             _events = CreateFrame("Frame")
             _events:SetScript("OnEvent", OnEvent)
         end
         if _needAura or _needForms then _events:RegisterUnitEvent("UNIT_AURA", "player")
         else _events:UnregisterEvent("UNIT_AURA") end
+        if NativeTimers.needParry then _events:RegisterUnitEvent("UNIT_COMBAT", "player")
+        else _events:UnregisterEvent("UNIT_COMBAT") end
         if _needCast then _events:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
         else _events:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED") end
         if NativeTimers.needCooldown then
@@ -2029,6 +2045,7 @@ function ns.FakeActive_Rearm()
     wipe(NativeTimers.rules); wipe(NativeTimers.bySettings); wipe(NativeTimers.procFrames)
     wipe(NativeTimers.owners)
     NativeTimers.needCooldown = false
+    NativeTimers.needParry = false
     -- Re-read rather than wipe: a re-arm during the login window would leave
     -- the map empty and the lazy refresh in KeyMatches would just rebuild it.
     RefreshSlotItemKeys()
@@ -2064,7 +2081,8 @@ function ns.FakeActive_Rearm()
             local duration = type(settings) == "table"
                 and (tonumber(rawget(settings, "activeTimerDuration")) or 0) or 0
             if type(spellID) == "number" and spellID > 0 and duration > 0
-               and (source == "native" or source == "proc" or source == "cast") then
+               and (source == "native" or source == "proc"
+                    or source == "parry" or source == "cast") then
                 local rule = {
                     spellID = spellID,
                     settings = settings,
@@ -2079,6 +2097,7 @@ function ns.FakeActive_Rearm()
                 NativeTimers.rules[#NativeTimers.rules + 1] = rule
                 NativeTimers.bySettings[settings] = rule
                 if source == "proc" then ns._cdmAnyProcActiveTimer = true end
+                if source == "parry" then NativeTimers.needParry = true end
                 if source == "cast" or rule.closeOnCast then _needCast = true end
                 if rule.showCooldown or rule.predictBorder then
                     NativeTimers.needCooldown = true
