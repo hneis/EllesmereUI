@@ -8,6 +8,24 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUICooldownManager"]
 if not ns then return end  -- module disabled: no options page
 
+-- Static locale keys used by the data-driven Active State Timer cog.
+EllesmereUI.L("Active State Timer")
+EllesmereUI.L("Timer Source")
+EllesmereUI.L("Native Active State")
+EllesmereUI.L("After Cast")
+EllesmereUI.L("Close Timer After Cast")
+EllesmereUI.L("Choose Native Active State first")
+EllesmereUI.L("Show Real Cooldown")
+EllesmereUI.L("Choose a Timer Source first")
+EllesmereUI.L("Real Cooldown Position")
+EllesmereUI.L("Real Cooldown Size")
+EllesmereUI.L("Enable Show Real Cooldown")
+EllesmereUI.L("Real Cooldown Color")
+EllesmereUI.L("Predictive Border")
+EllesmereUI.L("Cooldown Ends First")
+EllesmereUI.L("Active Window Ends First")
+EllesmereUI.L("Enable Predictive Border")
+
 -- The options page pool (EllesmereUI_FramePool.lua): a frame made under a pool
 -- host (a kept menu) is handed out again reset to fresh; anywhere else this is
 -- the plain CreateFrame. The picker and the per-icon settings menu are one kept
@@ -2533,6 +2551,63 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     return row, sub
                 end
 
+                -- Shared cog row used by both buff and native cooldown settings.
+                AB.MakeCogRow = function(label, isChanged, buildCog)
+                    local row = CreateFrame("Button", nil, inner)
+                    row:SetHeight(ITEM_H)
+                    row:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
+                    row:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
+                    row:SetFrameLevel(menu:GetFrameLevel() + 2)
+                    local lbl = row:CreateFontString(nil, "OVERLAY")
+                    lbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+                    lbl:SetPoint("LEFT", 10, 0); lbl:SetJustifyH("LEFT"); lbl:SetText(EllesmereUI.L(label))
+                    local function UpdateLabel()
+                        if isChanged() then
+                            local aR, aG, aB = EllesmereUI.GetAccentColor()
+                            lbl:SetTextColor(aR, aG, aB, 1)
+                        else
+                            lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                        end
+                    end
+                    row._updateLabel = UpdateLabel
+                    UpdateLabel()
+                    local arrow = row:CreateTexture(nil, "ARTWORK")
+                    arrow:SetSize(10, 10); arrow:SetPoint("RIGHT", row, "RIGHT", -8, 0)
+                    arrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\right-arrow.png")
+                    arrow:SetAlpha(0.7)
+                    local hl = row:CreateTexture(nil, "ARTWORK")
+                    hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0); hl:SetAlpha(0)
+                    local showFn, popup
+                    local function ShowCog()
+                        if not showFn then showFn = select(2, buildCog(row)) end
+                        if not popup then
+                            showFn(row)
+                            popup = showFn._popupFrame
+                        else
+                            if popup._refresh then popup._refresh() end
+                            popup:Show()
+                        end
+                        if popup then
+                            popup:SetScript("OnUpdate", nil)
+                            popup:SetClampedToScreen(true)
+                            popup:SetAlpha(1)
+                            popup:ClearAllPoints()
+                            popup:SetPoint("TOPLEFT", row, "TOPRIGHT", 2, 0)
+                        end
+                    end
+                    row:SetScript("OnEnter", function()
+                        lbl:SetTextColor(1, 1, 1, 1); hl:SetColorTexture(1, 1, 1, hlA); hl:SetAlpha(1)
+                        if menu._openSub and menu._openSub ~= popup and menu._openSub.Hide then menu._openSub:Hide() end
+                        ShowCog()
+                        menu._openSub = popup
+                    end)
+                    row:SetScript("OnLeave", function()
+                        UpdateLabel(); hl:SetAlpha(0)
+                    end)
+                    mH = mH + ITEM_H
+                    return row
+                end
+
                 -- "Threshold Text" per-spell subnav, shared by the buff, cd/util
                 -- and preset/custom branches. Threshold Seconds arms the feature for the
                 -- spell (0 = off = zero cost); Threshold Color and Threshold Decimals are
@@ -2921,67 +2996,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         if sr == nil and sg == nil and sb == nil then return false end
                         return (sr or br) ~= br or (sg or bg) ~= bg or (sb or bb) ~= bb
                     end
-                    -- isChanged: a function returning true when this cog's per-icon values
-                    -- DIFFER from the bar; the row label then rests at accent instead of dim (same "this is customized" cue as tri-state rows).
-                    local function MakeCogRow(label, isChanged, buildCog)
-                        local row = CreateFrame("Button", nil, inner)
-                        row:SetHeight(ITEM_H)
-                        row:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
-                        row:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
-                        row:SetFrameLevel(menu:GetFrameLevel() + 2)
-                        local lbl = row:CreateFontString(nil, "OVERLAY")
-                        lbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
-                        lbl:SetPoint("LEFT", 10, 0); lbl:SetJustifyH("LEFT"); lbl:SetText(EllesmereUI.L(label))
-                        -- Resting label color: accent when this cog's values differ from the bar, dim when they all match/inherit it.
-                        local function UpdateLabel()
-                            if isChanged() then
-                                local aR, aG, aB = EllesmereUI.GetAccentColor()
-                                lbl:SetTextColor(aR, aG, aB, 1)
-                            else
-                                lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
-                            end
-                        end
-                        row._updateLabel = UpdateLabel
-                        UpdateLabel()
-                        local arrow = row:CreateTexture(nil, "ARTWORK")
-                        arrow:SetSize(10, 10); arrow:SetPoint("RIGHT", row, "RIGHT", -8, 0)
-                        arrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\right-arrow.png")
-                        arrow:SetAlpha(0.7)
-                        local hl = row:CreateTexture(nil, "ARTWORK")
-                        hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0); hl:SetAlpha(0)
-                        -- Show on hover, anchored to the side, like the other subnav flyouts.
-                        -- Reuse BuildCogPopup but drop its slide animation + click-outside dismiss so the menu's _openSub machinery (hover-to-switch, close-with-menu) controls it.
-                        local _, showFn, pf
-                        local function ShowCog()
-                            if not showFn then _, showFn = buildCog(row) end
-                            if not pf then
-                                showFn(row)            -- first call creates + shows it
-                                pf = showFn._popupFrame
-                            else
-                                if pf._refresh then pf._refresh() end
-                                pf:Show()
-                            end
-                            if pf then
-                                pf:SetScript("OnUpdate", nil)
-                                pf:SetAlpha(1)
-                                pf:ClearAllPoints()
-                                pf:SetPoint("TOPLEFT", row, "TOPRIGHT", 2, 0)
-                            end
-                        end
-                        row:SetScript("OnEnter", function()
-                            lbl:SetTextColor(1, 1, 1, 1); hl:SetColorTexture(1, 1, 1, hlA); hl:SetAlpha(1)
-                            if menu._openSub and menu._openSub ~= pf and menu._openSub.Hide then menu._openSub:Hide() end
-                            ShowCog()
-                            menu._openSub = pf
-                        end)
-                        row:SetScript("OnLeave", function()
-                            UpdateLabel(); hl:SetAlpha(0)
-                        end)
-                        mH = mH + ITEM_H
-                        return row
-                    end
-
-                    MakeCogRow("Duration Text", function()
+                    AB.MakeCogRow("Duration Text", function()
                         local b = cdmBd
                         return valChanged(ss.showCooldownText, (b and b.showCooldownText) ~= false)
                             or valChanged(ss.cooldownFontSize, (b and b.cooldownFontSize) or 12)
@@ -3020,7 +3035,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         })
                     end)
 
-                    MakeCogRow("Stack Text and Glows", function()
+                    AB.MakeCogRow("Stack Text and Glows", function()
                         local b = cdmBd
                         return valChanged(ss.showChargeStackText, (b and b.showChargeStackText) ~= false)
                             or ss.buffGlowStackEnabled == true
@@ -3088,7 +3103,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
 
                     -- Border: per-icon override of the bar's border SIZE + COLOR (never style).
                     -- Mirrors the Charges/Stacks cog exactly; the render side reads (ssb and ssb.border*) or the bar value in ApplyShapeToCDMIcon.
-                    MakeCogRow("Border", function()
+                    AB.MakeCogRow("Border", function()
                         local b = cdmBd
                         return valChanged(ss.borderSize, (b and b.borderSize) or 1)
                             or colChanged(ss.borderR, ss.borderG, ss.borderB,
@@ -3985,6 +4000,127 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     end)
                 end
 
+                if not isCustomInjected and not isBuffBar and not isHostedBuff then
+                    do
+                        local function TimerChanged(row)
+                            if rawget(ss, "activeTimerSource") ~= nil then
+                                ns._cdmAnyNativeActiveTimer = true
+                            end
+                            if ns.FakeActive_Rearm then ns.FakeActive_Rearm() end
+                            if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
+                            if row._updateLabel then row._updateLabel() end
+                        end
+                        local function TimerVisualChanged(row)
+                            if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
+                            if row._updateLabel then row._updateLabel() end
+                        end
+                        AB.MakeCogRow("Active State Timer", function()
+                            return rawget(ss, "activeTimerSource") ~= nil
+                        end, function(row)
+                            return EllesmereUI.BuildCogPopup({
+                                title = "Active State Timer", noOwnerDim = true,
+                                frameStrata = "FULLSCREEN_DIALOG", frameLevel = 350,
+                                rows = {
+                                    { type="dropdown", label="Timer Source",
+                                      values={ off="Off", native="Native Active State", cast="After Cast" },
+                                      order={ "off", "native", "cast" },
+                                      get=function() return rawget(ss, "activeTimerSource") or "off" end,
+                                      set=function(v)
+                                          EnsureSS()
+                                          ss.activeTimerSource = v ~= "off" and v or nil
+                                          if v ~= "off" and not rawget(ss, "activeTimerDuration") then
+                                              ss.activeTimerDuration = 4
+                                          end
+                                          TimerChanged(row)
+                                      end },
+                                    { type="input", label="Duration", inputWidth=48, commitOnBlur=true,
+                                      disabled=function() return rawget(ss, "activeTimerSource") == nil end,
+                                      disabledTooltip="Choose a Timer Source first",
+                                      get=function() return tostring(tonumber(rawget(ss, "activeTimerDuration")) or 4) end,
+                                      set=function(v)
+                                          local seconds = tonumber(v) or 4
+                                          if seconds <= 0 then seconds = 0.1 end
+                                          EnsureSS(); ss.activeTimerDuration = seconds
+                                          TimerChanged(row)
+                                      end },
+                                    { type="toggle", label="Close Timer After Cast",
+                                      disabled=function() return rawget(ss, "activeTimerSource") ~= "native" end,
+                                      disabledTooltip="Choose Native Active State first",
+                                      get=function() return rawget(ss, "activeTimerCloseOnCast") == true end,
+                                      set=function(v) EnsureSS(); ss.activeTimerCloseOnCast = v or nil; TimerChanged(row) end },
+                                    { type="toggle", label="Show Real Cooldown",
+                                      disabled=function() return rawget(ss, "activeTimerSource") == nil end,
+                                      disabledTooltip="Choose a Timer Source first",
+                                      get=function() return rawget(ss, "activeTimerShowCooldown") == true end,
+                                      set=function(v) EnsureSS(); ss.activeTimerShowCooldown = v or nil; TimerChanged(row) end },
+                                    { type="dropdown", label="Real Cooldown Position",
+                                      values=durationPositionValues, order=durationPositionOrder,
+                                      disabled=function() return rawget(ss, "activeTimerShowCooldown") ~= true end,
+                                      disabledTooltip="Enable Show Real Cooldown",
+                                      get=function() return rawget(ss, "activeTimerCooldownPosition") or "top" end,
+                                      set=function(v) EnsureSS(); ss.activeTimerCooldownPosition = v; TimerVisualChanged(row) end },
+                                    { type="slider", label="Real Cooldown Size", min=6, max=30, step=1,
+                                      disabled=function() return rawget(ss, "activeTimerShowCooldown") ~= true end,
+                                      disabledTooltip="Enable Show Real Cooldown",
+                                      get=function() return tonumber(rawget(ss, "activeTimerCooldownSize")) or 10 end,
+                                      set=function(v) EnsureSS(); ss.activeTimerCooldownSize = v; TimerVisualChanged(row) end },
+                                    { type="slider", label="X Offset", min=-50, max=50, step=1,
+                                      disabled=function() return rawget(ss, "activeTimerShowCooldown") ~= true end,
+                                      disabledTooltip="Enable Show Real Cooldown",
+                                      get=function() return tonumber(rawget(ss, "activeTimerCooldownX")) or 0 end,
+                                      set=function(v) EnsureSS(); ss.activeTimerCooldownX = v; TimerVisualChanged(row) end },
+                                    { type="slider", label="Y Offset", min=-50, max=50, step=1,
+                                      disabled=function() return rawget(ss, "activeTimerShowCooldown") ~= true end,
+                                      disabledTooltip="Enable Show Real Cooldown",
+                                      get=function() return tonumber(rawget(ss, "activeTimerCooldownY")) or 0 end,
+                                      set=function(v) EnsureSS(); ss.activeTimerCooldownY = v; TimerVisualChanged(row) end },
+                                    { type="colorpicker", label="Real Cooldown Color",
+                                      disabled=function() return rawget(ss, "activeTimerShowCooldown") ~= true end,
+                                      disabledTooltip="Enable Show Real Cooldown",
+                                      get=function() return rawget(ss, "activeTimerCooldownR")
+                                              or (cdmBd and cdmBd.cooldownTextR) or 1,
+                                          rawget(ss, "activeTimerCooldownG")
+                                              or (cdmBd and cdmBd.cooldownTextG) or 1,
+                                          rawget(ss, "activeTimerCooldownB")
+                                              or (cdmBd and cdmBd.cooldownTextB) or 1 end,
+                                      set=function(r, g, b)
+                                          EnsureSS(); ss.activeTimerCooldownR = r
+                                          ss.activeTimerCooldownG = g; ss.activeTimerCooldownB = b
+                                          TimerVisualChanged(row)
+                                      end },
+                                    { type="toggle", label="Predictive Border",
+                                      disabled=function() return rawget(ss, "activeTimerSource") == nil end,
+                                      disabledTooltip="Choose a Timer Source first",
+                                      get=function() return rawget(ss, "activeTimerPredictBorder") == true end,
+                                      set=function(v) EnsureSS(); ss.activeTimerPredictBorder = v or nil; TimerChanged(row) end },
+                                    { type="colorpicker", label="Cooldown Ends First",
+                                      disabled=function() return rawget(ss, "activeTimerPredictBorder") ~= true end,
+                                      disabledTooltip="Enable Predictive Border",
+                                      get=function() return rawget(ss, "activeTimerReadyR") or 0.1,
+                                          rawget(ss, "activeTimerReadyG") or 1,
+                                          rawget(ss, "activeTimerReadyB") or 0.2 end,
+                                      set=function(r, g, b)
+                                          EnsureSS(); ss.activeTimerReadyR = r
+                                          ss.activeTimerReadyG = g; ss.activeTimerReadyB = b
+                                          TimerVisualChanged(row)
+                                      end },
+                                    { type="colorpicker", label="Active Window Ends First",
+                                      disabled=function() return rawget(ss, "activeTimerPredictBorder") ~= true end,
+                                      disabledTooltip="Enable Predictive Border",
+                                      get=function() return rawget(ss, "activeTimerLateR") or 1,
+                                          rawget(ss, "activeTimerLateG") or 0.1,
+                                          rawget(ss, "activeTimerLateB") or 0.1 end,
+                                      set=function(r, g, b)
+                                          EnsureSS(); ss.activeTimerLateR = r
+                                          ss.activeTimerLateG = g; ss.activeTimerLateB = b
+                                          TimerVisualChanged(row)
+                                      end },
+                                },
+                            })
+                        end)
+                    end
+                end
+
                 -- 3. Active State Glow (default = nil / none)
                 local glowRow = MakeSubnavRow("Active State Glow", ACTIVE_GLOW_ITEMS,
                     function() return ss.activeGlow end,
@@ -4579,8 +4715,25 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
         end
 
         -- Size and show
-        inner:SetHeight(mH + 4)
-        menu:SetSize(menuW, mH + 4)
+        local settingsHeight = mH + 4
+        inner:SetHeight(settingsHeight)
+        if settingsHeight > MAX_H then
+            menu:SetSize(menuW, MAX_H)
+            local sf = CreateFrame("ScrollFrame", nil, menu)
+            sf:SetPoint("TOPLEFT"); sf:SetPoint("BOTTOMRIGHT")
+            sf:SetFrameLevel(menu:GetFrameLevel() + 1)
+            sf:EnableMouseWheel(true)
+            sf:SetScrollChild(inner)
+            inner:SetWidth(menuW)
+            sf:HookScript("OnVerticalScroll", function()
+                if menu._openSub and menu._openSub:IsShown() then menu._openSub:Hide() end
+            end)
+            EllesmereUI.AttachSmoothScrollbar(sf, { step = 40, thumb = false })
+        else
+            menu:SetSize(menuW, settingsHeight)
+            inner:SetParent(menu)
+            inner:SetPoint("TOPLEFT")
+        end
         menu:ClearAllPoints()
         menu:SetPoint("TOP", anchorFrame, "BOTTOM", 0, -4)
         menu._anchorFrame = anchorFrame

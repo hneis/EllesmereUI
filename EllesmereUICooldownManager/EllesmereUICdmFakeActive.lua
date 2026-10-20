@@ -101,6 +101,12 @@ local _events
 local _ticker
 local _api       = {}
 local _overlays  = setmetatable({}, { __mode = "k" })  -- iconFrame -> overlay data
+local NativeTimers = {
+    rules = {},
+    bySettings = setmetatable({}, { __mode = "k" }),
+    owners = setmetatable({}, { __mode = "k" }),
+    needCooldown = false,
+}
 
 -- Cooldown-state effects (continuous, cooldown-driven; presets only).
 local _cdStateRules = {}                                -- subset: a cd-state hide, glow or ready sound set
@@ -134,6 +140,7 @@ local EnsureTicker, OpenWindow, CloseWindow, CloseAll, CastWindow
 local OpenFromAura, EvalCustom, InitialStamp, OnEvent, UpdateListeners
 local ResolveCastSpells, PresetAltItemIDs
 local PresetOnCD, ApplyCdState, RestoreAllCdState, EvalCdStateNow, QueueCdStateEval, QueueFormAuraEval
+local RefreshActualState, PaintPredictiveBorder, SetNativeOwner
 
 -- ---------------------------------------------------------------------------
 --  Icon identity: slot key <-> equipped item key
@@ -387,6 +394,7 @@ ApplyToFrame = function(iconFrame, rule, win)
 
     if win and not hidden then
         o._rule = rule  -- remembered so a live restyle can re-sync this overlay
+        if rule.nativeTimer then SetNativeOwner(iconFrame, rule) end
         IconTexture(iconFrame, o, rule)
         -- Mirror the underlying icon's custom shape onto our overlay so a shaped
         -- icon stays shaped (mask + swipe), then lift the border above us.
@@ -444,14 +452,37 @@ ApplyToFrame = function(iconFrame, rule, win)
             o.frame:SetAlpha(1)
         end
         HoldCdGlow(iconFrame, o._activeGlowOn == true and not slotMode)
+        if rule.nativeTimer then RefreshActualState(iconFrame, o, rule, win, ss, bd) end
     else
         o._rule = nil
         o._ss = nil
         RestoreOverlayBorders(iconFrame, o)
         if ns.ApplyActiveOverlays then ns.ApplyActiveOverlays(o.frame, o, ss, false, bd) end
+        if o._predictBorderOn and o.borderFrame and EllesmereUI.SetBorderStyleColor then
+            local r = (bd and bd.borderR) or 0
+            local g = (bd and bd.borderG) or 0
+            local b = (bd and bd.borderB) or 0
+            if bd and bd.borderClassColor then
+                local cc = ns._playerClass and RAID_CLASS_COLORS[ns._playerClass]
+                if cc then r, g, b = cc.r, cc.g, cc.b end
+            end
+            if ss then
+                if ss.borderR ~= nil then r = ss.borderR end
+                if ss.borderG ~= nil then g = ss.borderG end
+                if ss.borderB ~= nil then b = ss.borderB end
+            end
+            EllesmereUI.SetBorderStyleColor(o.borderFrame, r, g, b,
+                (bd and bd.borderA) or 1)
+        end
+        o._predictBorderOn = nil
         HoldCdGlow(iconFrame, false)
         o.cd:Clear()
+        if o.realCd then
+            o.realCd:SetHideCountdownNumbers(true)
+            o.realCd:Clear()
+        end
         o.frame:SetAlpha(0)
+        if rule.nativeTimer then SetNativeOwner(iconFrame, nil, rule) end
         if FA121 then FA121.Detach(o) end
     end
 end
@@ -477,33 +508,105 @@ ns.CdmIsInjectedFrame = IsInjectedFrame
 -- orphaned custom timer while custom-bar presets keep their active states.
 local NATIVE_VIEWER_BARKEYS = { cooldowns = true, utility = true, buffs = true }
 
+local function RuleMatchesFrame(rule, frame, FCt)
+    local fc = frame and FCt[frame]
+    if not fc then return false end
+    if rule.barKey then
+        return fc.barKey == rule.barKey and KeyMatches(rule.spellID, fc.spellID)
+    end
+    if rule.nativeTimer then
+        local bd = fc.barKey and ns.barDataByKey and ns.barDataByKey[fc.barKey]
+        local barType = ns.GetBarType and ns.GetBarType(bd or fc.barKey) or fc.barKey
+        if (barType ~= "cooldowns" and barType ~= "utility") or IsInjectedFrame(frame) then
+            return false
+        end
+        local liveSettings = ns.ResolveSpellSettings
+            and ns.ResolveSpellSettings(frame, fc.spellID,
+                ns.GetBarSpellData(fc.barKey), fc.barKey)
+        return liveSettings == rule.settings
+    end
+    if rule.user then
+        return IsInjectedFrame(frame) and KeyMatches(rule.spellID, fc.spellID)
+    end
+    return fc.barKey and NATIVE_VIEWER_BARKEYS[fc.barKey]
+        and KeyMatches(rule.spellID, fc.spellID)
+end
+
 -- Apply (or clear) a rule on every matching live icon. A rule with .barKey
 -- only matches icons on that bar; a user rule matches any bar; a built-in
 -- rule matches native viewer bars only.
 ApplyRule = function(rule, win)
-    local icons = ns.cdmBarIcons
     local FCt = ns._ecmeFC
-    if not icons or not FCt then return end
+    if not FCt then return end
+    if not win then
+        for frame, overlay in pairs(_overlays) do
+            if overlay._rule == rule then ApplyToFrame(frame, rule, nil) end
+        end
+        return
+    end
+    for frame, overlay in pairs(_overlays) do
+        if overlay._rule == rule and not RuleMatchesFrame(rule, frame, FCt) then
+            ApplyToFrame(frame, rule, nil)
+        end
+    end
+    local icons = ns.cdmBarIcons
+    if not icons then return end
     local sid = rule.spellID
     for _, list in pairs(icons) do
         for i = 1, #list do
             local f = list[i]
-            local fc = f and FCt[f]
-            local barScopeOK
-            if rule.barKey then
-                barScopeOK = fc and fc.barKey == rule.barKey
-            elseif rule.user then
-                barScopeOK = fc ~= nil and IsInjectedFrame(f)
-            else
-                barScopeOK = fc and fc.barKey and NATIVE_VIEWER_BARKEYS[fc.barKey]
-            end
-            if barScopeOK and KeyMatches(sid, fc.spellID) then
+            local canApply = not rule.nativeTimer or _overlays[f]
+                or not (InCombatLockdown and InCombatLockdown())
+            if canApply and RuleMatchesFrame(rule, f, FCt) then
                 ApplyToFrame(f, rule, win)
                 if ns._fakeActiveDebug then
                     print(("|cff0cd29fEUI FakeActive|r %s sid=%s"):format(
                         win and "ON " or "off", tostring(sid)))
                 end
             end
+        end
+    end
+end
+
+SetNativeOwner = function(frame, rule, closingRule)
+    if closingRule and NativeTimers.owners[frame] ~= closingRule then return end
+    NativeTimers.owners[frame] = rule
+    if ns.ReevaluateNativeActiveTimerVisibility then
+        ns.ReevaluateNativeActiveTimerVisibility(frame)
+    end
+end
+
+function ns.FakeActive_KeepsFrameVisible(frame, spellID)
+    local rule = NativeTimers.owners[frame]
+    if not (rule and rule.nativeTimer) then return false end
+    local fc = ns._ecmeFC and ns._ecmeFC[frame]
+    if not (fc and fc.spellID == spellID and fc.barKey) then return false end
+    local ss = ns.ResolveSpellSettings and ns.ResolveSpellSettings(frame, spellID,
+        ns.GetBarSpellData(fc.barKey), fc.barKey)
+    return ss == rule.settings
+end
+
+function ns.FakeActive_PrepareNativeFrame(frame, settings)
+    if not NativeTimers.bySettings[settings] or _overlays[frame] then return end
+    if InCombatLockdown and InCombatLockdown() then return end
+    GetOverlay(frame)
+end
+
+function ns.FakeActive_ReleaseNativeFrame(frame)
+    local overlay = _overlays[frame]
+    local rule = overlay and overlay._rule
+    if rule and rule.nativeTimer then ApplyToFrame(frame, rule, nil) end
+end
+
+local function PrepareNativeRuleFrames(rule)
+    if InCombatLockdown and InCombatLockdown() then return end
+    local icons = ns.cdmBarIcons
+    local FCt = ns._ecmeFC
+    if not (icons and FCt) then return end
+    for _, list in pairs(icons) do
+        for i = 1, #list do
+            local frame = list[i]
+            if RuleMatchesFrame(rule, frame, FCt) then GetOverlay(frame) end
         end
     end
 end
@@ -942,6 +1045,156 @@ CastWindow = function(rule)
     return { start = now, dur = dur, expiry = now + dur }
 end
 
+local function ActualCooldown(iconFrame, spellID)
+    local liveID = spellID
+    local hookInternals = ns._hookInternals
+    if hookInternals and hookInternals.ResolveFrameSpellID then
+        local resolved = hookInternals.ResolveFrameSpellID(iconFrame)
+        if not (issecretvalue and issecretvalue(resolved))
+           and type(resolved) == "number" and resolved > 0 then
+            liveID = resolved
+        end
+    end
+    if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
+        local override = C_SpellBook.FindSpellOverrideByID(liveID)
+        if not (issecretvalue and issecretvalue(override))
+           and type(override) == "number" and override > 0 then
+            liveID = override
+        end
+    end
+    local charges = hookInternals and hookInternals.CdmChargeInfoFor
+        and hookInternals.CdmChargeInfoFor(iconFrame, liveID)
+    if not charges then
+        charges = C_Spell and C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(liveID)
+    end
+    if charges and not (issecretvalue and issecretvalue(charges))
+       and (charges.maxCharges or 0) > 1 and charges.isActive == true then
+        local duration = C_Spell.GetSpellChargeDuration and C_Spell.GetSpellChargeDuration(liveID)
+        return duration, true
+    end
+    local info = C_Spell and C_Spell.GetSpellCooldown and C_Spell.GetSpellCooldown(liveID)
+    local onCD = ns.CdmOnRealCD and ns.CdmOnRealCD(iconFrame, info) or false
+    if onCD and C_Spell.GetSpellCooldownDuration then
+        return C_Spell.GetSpellCooldownDuration(liveID, true), true
+    end
+    return nil, onCD
+end
+
+local function EnsureActualCooldown(iconFrame, o)
+    if o.realCd then return o.realCd end
+    local cd = CreateFrame("Cooldown", nil, o.frame, "CooldownFrameTemplate")
+    cd:SetAllPoints(o.frame)
+    cd:SetFrameLevel(o.frame:GetFrameLevel() + 3)
+    cd:SetDrawSwipe(false)
+    cd:SetDrawEdge(false)
+    cd:SetDrawBling(false)
+    cd:SetHideCountdownNumbers(true)
+    cd:SetScript("OnCooldownDone", function()
+        if o._clearingActual then return end
+        cd:SetHideCountdownNumbers(true)
+        local rule = o._rule
+        local win = rule and _windows[rule]
+        if rule and rule.nativeTimer and win then
+            local fc = ns._ecmeFC and ns._ecmeFC[iconFrame]
+            local bd = fc and fc.barKey and ns.barDataByKey and ns.barDataByKey[fc.barKey]
+            PaintPredictiveBorder(iconFrame, o, rule, win, o._ss, bd, nil, false)
+            if ns.ReevaluateNativeActiveTimerVisibility then
+                ns.ReevaluateNativeActiveTimerVisibility(iconFrame)
+            end
+        end
+    end)
+    o.realCd = cd
+    return cd
+end
+
+local function CurveValue(duration, threshold, first, late)
+    if not (duration and duration.EvaluateRemainingDuration
+            and C_CurveUtil and C_CurveUtil.CreateCurve
+            and Enum and Enum.LuaCurveType) then
+        return late
+    end
+    local curve = C_CurveUtil.CreateCurve()
+    curve:SetType(Enum.LuaCurveType.Step)
+    curve:AddPoint(0, first)
+    curve:AddPoint(threshold, late)
+    return duration:EvaluateRemainingDuration(curve, late)
+end
+
+PaintPredictiveBorder = function(iconFrame, o, rule, win, ss, bd, duration, onCD)
+    if not (ss and ss.activeTimerPredictBorder) then return end
+    local goodR = ss.activeTimerReadyR or 0.1
+    local goodG = ss.activeTimerReadyG or 1
+    local goodB = ss.activeTimerReadyB or 0.2
+    local lateR = ss.activeTimerLateR or 1
+    local lateG = ss.activeTimerLateG or 0.1
+    local lateB = ss.activeTimerLateB or 0.1
+    local r, g, b = goodR, goodG, goodB
+    if onCD then
+        if duration then
+            local remaining = math.max(0.001, win.expiry - GetTime())
+            r = CurveValue(duration, remaining, goodR, lateR)
+            g = CurveValue(duration, remaining, goodG, lateG)
+            b = CurveValue(duration, remaining, goodB, lateB)
+        else
+            r, g, b = lateR, lateG, lateB
+        end
+    end
+    local ifc = ns._ecmeFC and ns._ecmeFC[o.frame]
+    local shapeBorder = ifc and ifc.shapeApplied and ifc.shapeBorder
+    local alpha = ss.activeTimerBorderA or 1
+    if shapeBorder then
+        if not o._sbColorSaved then
+            o._sbR, o._sbG, o._sbB, o._sbA = shapeBorder:GetVertexColor()
+            o._sbColorSaved = true
+        end
+        shapeBorder:SetVertexColor(r, g, b, alpha)
+    elseif o.borderFrame and EllesmereUI.SetBorderStyleColor then
+        EllesmereUI.SetBorderStyleColor(o.borderFrame, r, g, b, alpha)
+    end
+    o._activeBorderOn = true
+    o._predictBorderOn = true
+end
+
+RefreshActualState = function(iconFrame, o, rule, win, ss, bd)
+    local wantsText = ss and ss.activeTimerShowCooldown == true
+    local wantsBorder = ss and ss.activeTimerPredictBorder == true
+    if not (wantsText or wantsBorder) then return end
+    local duration, onCD = ActualCooldown(iconFrame, rule.spellID)
+    local cd = EnsureActualCooldown(iconFrame, o)
+    if onCD and duration then
+        cd:SetCooldownFromDurationObject(duration, true)
+        cd:SetDrawSwipe(false)
+        if ns.StyleActiveTimerCooldownText then
+            ns.StyleActiveTimerCooldownText(cd, bd, ss, iconFrame:GetScale())
+        end
+    else
+        cd:SetHideCountdownNumbers(true)
+        o._clearingActual = true
+        cd:Clear()
+        o._clearingActual = nil
+    end
+    PaintPredictiveBorder(iconFrame, o, rule, win, ss, bd, duration, onCD)
+end
+
+function ns.FakeActive_NativeState(_frame, settings, active, initial)
+    local rule = settings and NativeTimers.bySettings[settings]
+    if not (rule and rule.source == "native") then return end
+    if not active then return end
+    if initial and _windows[rule] then return end
+    local win = CastWindow(rule)
+    if win then OpenWindow(rule, win) end
+end
+
+local function RefreshOpenNativeActuals()
+    for i = 1, #NativeTimers.rules do
+        local rule = NativeTimers.rules[i]
+        local win = _windows[rule]
+        if win and (rule.showCooldown or rule.predictBorder) then
+            ApplyRule(rule, win)
+        end
+    end
+end
+
 -- ---------------------------------------------------------------------------
 --  Trigger evaluators
 -- ---------------------------------------------------------------------------
@@ -1002,6 +1255,24 @@ OnEvent = function(self, event, unit, updateInfo, spellID)
         end
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         _lastCast = spellID
+        if spellID then
+            for i = 1, #NativeTimers.rules do
+                local rule = NativeTimers.rules[i]
+                local spells = ResolveCastSpells(rule.spellID)
+                local matches = false
+                for j = 1, #spells do
+                    if spells[j] == spellID then matches = true; break end
+                end
+                if matches then
+                    if rule.source == "cast" then
+                        local win = CastWindow(rule)
+                        if win then OpenWindow(rule, win) end
+                    elseif rule.closeOnCast and _windows[rule] then
+                        CloseWindow(rule)
+                    end
+                end
+            end
+        end
         local hits = spellID and _castMap[spellID]
         if hits then
             for i = 1, #hits do
@@ -1010,6 +1281,8 @@ OnEvent = function(self, event, unit, updateInfo, spellID)
             end
         end
         for i = 1, #_customRules do EvalCustom(_customRules[i]) end
+    elseif event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_CHARGES" then
+        RefreshOpenNativeActuals()
     elseif event == "PLAYER_EQUIPMENT_CHANGED" then
         -- The key map covers every equipment slot, so ANY swap can stale it --
         -- refresh unconditionally. It is a wipe plus one lookup per slot on an
@@ -1045,7 +1318,7 @@ OnEvent = function(self, event, unit, updateInfo, spellID)
 end
 
 UpdateListeners = function()
-    if _needAura or _needCast or _hasUserRules then
+    if _needAura or _needCast or _hasUserRules or NativeTimers.needCooldown then
         if not _events then
             _events = CreateFrame("Frame")
             _events:SetScript("OnEvent", OnEvent)
@@ -1054,6 +1327,13 @@ UpdateListeners = function()
         else _events:UnregisterEvent("UNIT_AURA") end
         if _needCast then _events:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
         else _events:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED") end
+        if NativeTimers.needCooldown then
+            _events:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+            _events:RegisterEvent("SPELL_UPDATE_CHARGES")
+        else
+            _events:UnregisterEvent("SPELL_UPDATE_COOLDOWN")
+            _events:UnregisterEvent("SPELL_UPDATE_CHARGES")
+        end
         if _needForms then _events:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
         else _events:UnregisterEvent("UPDATE_SHAPESHIFT_FORM") end
         if _needStance then
@@ -1086,7 +1366,10 @@ ResolveCastSpells = function(key)
         out[#out + 1] = key
         if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
             local ov = C_SpellBook.FindSpellOverrideByID(key)
-            if ov and ov > 0 and ov ~= key then out[#out + 1] = ov end
+            if not (issecretvalue and issecretvalue(ov))
+               and type(ov) == "number" and ov > 0 and ov ~= key then
+                out[#out + 1] = ov
+            end
         end
     else
         local itemID
@@ -1591,6 +1874,11 @@ end
 function ns.FakeActive_OnIconRestyled(iconFrame)
     local o = _overlays[iconFrame]
     if not o or not o._rule then return end           -- no overlay / no open window
+    if o._rule.nativeTimer
+       and not RuleMatchesFrame(o._rule, iconFrame, ns._ecmeFC) then
+        ApplyToFrame(iconFrame, o._rule, nil)
+        return
+    end
     local st121 = FA121 and FA121.byRule[o._rule]
     if st121 then
         -- 12.1 slot mode: the legacy overlay is permanently dark (alpha 0 --
@@ -1639,6 +1927,11 @@ function ns.FakeActive_OnIconRestyled(iconFrame)
         -- A live glow edit can switch the overlay's active glow on or off.
         HoldCdGlow(iconFrame, o._activeGlowOn == true and not st121)
     end
+    local liveRule = o._rule
+    local liveWindow = liveRule and _windows[liveRule]
+    if liveRule and liveRule.nativeTimer and liveWindow then
+        RefreshActualState(iconFrame, o, liveRule, liveWindow, o._ss, bd)
+    end
     -- 12.1 slot mode: the live swipe is the slot-child cooldown, not o.cd.
     -- Best-effort mirror only: the engine binding owns that region (field
     -- lesson, 68824), so these are pcall'd and skipped once known-denied.
@@ -1679,6 +1972,9 @@ function ns.FakeActive_Rearm()
     RestoreAllCdState()  -- un-hide / un-glow icons from the outgoing rule set
     CloseAll()
     wipe(_rules); wipe(_auraRules); wipe(_customRules); wipe(_castMap); wipe(_cdStateRules)
+    wipe(NativeTimers.rules); wipe(NativeTimers.bySettings)
+    wipe(NativeTimers.owners)
+    NativeTimers.needCooldown = false
     -- Re-read rather than wipe: a re-arm during the login window would leave
     -- the map empty and the lazy refresh in KeyMatches would just rebuild it.
     RefreshSlotItemKeys()
@@ -1705,7 +2001,39 @@ function ns.FakeActive_Rearm()
     end
     if FA121 then FA121.EndSweep() end
 
-    -- 2. User rules: profile-level custom active states, keyed by spell. These
+    -- 2. Explicit per-spell timers for native cooldown/utility icons. These use
+    -- the family settings store and never share the injected-rule namespace.
+    local nativeStore = ns.GetSpellSettingsStore and ns.GetSpellSettingsStore("cooldowns")
+    if nativeStore then
+        for spellID, settings in pairs(nativeStore) do
+            local source = type(settings) == "table" and rawget(settings, "activeTimerSource")
+            local duration = type(settings) == "table"
+                and (tonumber(rawget(settings, "activeTimerDuration")) or 0) or 0
+            if type(spellID) == "number" and spellID > 0 and duration > 0
+               and (source == "native" or source == "cast") then
+                local rule = {
+                    spellID = spellID,
+                    settings = settings,
+                    nativeTimer = true,
+                    source = source,
+                    duration = duration,
+                    closeOnCast = rawget(settings, "activeTimerCloseOnCast") == true,
+                    showCooldown = rawget(settings, "activeTimerShowCooldown") == true,
+                    predictBorder = rawget(settings, "activeTimerPredictBorder") == true,
+                }
+                _rules[#_rules + 1] = rule
+                NativeTimers.rules[#NativeTimers.rules + 1] = rule
+                NativeTimers.bySettings[settings] = rule
+                if source == "cast" or rule.closeOnCast then _needCast = true end
+                if rule.showCooldown or rule.predictBorder then
+                    NativeTimers.needCooldown = true
+                end
+                PrepareNativeRuleFrames(rule)
+            end
+        end
+    end
+
+    -- 3. User rules: profile-level custom active states, keyed by spell. These
     --    travel with the spell across every bar and spec, so no barKey scope --
     --    the overlay shows on whichever bar currently hosts the icon.
     -- A spell may have a cast-triggered active overlay (duration), a continuous
@@ -1785,6 +2113,9 @@ function ns.FakeActive_Rearm()
     SyncFormAuraRules()
     _armed = #_rules > 0
     UpdateListeners()
+    if ns.ReprimeNativeActiveTimerWatches then
+        ns.ReprimeNativeActiveTimerWatches()
+    end
     if #_cdStateRules > 0 then
         -- Apply + wire the engine-edge hooks now so the rebuild doesn't flash
         -- the icon visible; from here every transition is edge-driven.

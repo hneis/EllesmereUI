@@ -19,6 +19,7 @@ local GetTime = GetTime
 local _isDruid, GetViewerFrame, hookFrameData = I._isDruid, I.GetViewerFrame, I.hookFrameData
 local IsCDMSettingsOpen, ResolveFrameSpellID = I.IsCDMSettingsOpen, I.ResolveFrameSpellID
 local ResolveSpellSettings, CdmChargeInfoFor = I.ResolveSpellSettings, I.CdmChargeInfoFor
+local CdmFrameIsActive = I.CdmFrameIsActive
 
 -------------------------------------------------------------------------------
 --  Audio Effect on CD Ready -- per-spell (CD/utility bars only)
@@ -1216,7 +1217,10 @@ local function ArmCdStateEval(frame, fd, cse, cseShift, lowAlpha, hideUntilSpent
                 else
                     -- Hidden (CD Ready): on a charge spell "ready" is max
                     -- charges, so the icon keeps tracking the recharge.
-                    hide = ns.CdmCdStateReady(liveSid, onCD, self.hideUntilSpent)
+                    local timerVisible = ns.FakeActive_KeepsFrameVisible
+                        and ns.FakeActive_KeepsFrameVisible(frame, sid3)
+                    hide = not timerVisible
+                        and ns.CdmCdStateReady(liveSid, onCD, self.hideUntilSpent)
                 end
                 frame:SetAlpha(hide and 0 or baseA)
                 if fc3 then
@@ -1239,6 +1243,121 @@ local function ArmCdStateEval(frame, fd, cse, cseShift, lowAlpha, hideUntilSpent
     pending.stance = stance
     pending.stanceOnly = stanceOnly
     pending:Show()
+end
+
+-- Native active timers enroll only configured frames. The hook remains inert
+-- after a setting is disabled because all live state stays in the weak watch.
+ns._nativeActiveTimerWatch = ns._nativeActiveTimerWatch or setmetatable({}, { __mode = "k" })
+ns._nativeActiveTimerHooked = ns._nativeActiveTimerHooked or setmetatable({}, { __mode = "k" })
+
+local function UpdateNativeActiveTimer(frame)
+    local current = ns._nativeActiveTimerWatch[frame]
+    if not current then return end
+    local active = CdmFrameIsActive and CdmFrameIsActive(frame) or false
+    local initial = current.initial
+    current.initial = nil
+    if active == current.active then return end
+    current.active = active
+    if ns.FakeActive_NativeState then
+        ns.FakeActive_NativeState(frame, current.settings, active, initial)
+    end
+end
+
+ns.NativeActiveTimerIntegrity = UpdateNativeActiveTimer
+
+local function SetNativeActiveTimerEvents(on)
+    local events = ns._nativeActiveTimerEventFrame
+    if on and not events then
+        events = ns.TakeShell()
+        events:SetScript("OnEvent", function()
+            for frame in pairs(ns._nativeActiveTimerWatch) do
+                UpdateNativeActiveTimer(frame)
+            end
+        end)
+        ns._nativeActiveTimerEventFrame = events
+    end
+    if not events or events._timerEventsOn == on then return end
+    events._timerEventsOn = on
+    if on then
+        events:RegisterEvent("SPELL_UPDATE_USABLE")
+        events:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
+        events:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
+    else
+        events:UnregisterAllEvents()
+    end
+end
+
+function ns.WatchNativeActiveTimerIfEnabled(frame)
+    local fd = hookFrameData[frame]
+    local fc = _ecmeFC[frame]
+    local sid = fc and fc.spellID
+    local barKey = fc and fc.barKey
+    if not (fd and sid and barKey) then
+        ns._nativeActiveTimerWatch[frame] = nil
+        if not next(ns._nativeActiveTimerWatch) then SetNativeActiveTimerEvents(false) end
+        return
+    end
+    local ss = ResolveSpellSettings(frame, sid, ns.GetBarSpellData(barKey), barKey)
+    local source = ss and rawget(ss, "activeTimerSource")
+    local duration = ss and tonumber(rawget(ss, "activeTimerDuration")) or 0
+    if (source == "native" or source == "cast") and duration > 0
+       and ns.FakeActive_PrepareNativeFrame then
+        ns.FakeActive_PrepareNativeFrame(frame, ss)
+    end
+    if source ~= "native" or duration <= 0 then
+        ns._nativeActiveTimerWatch[frame] = nil
+        if not next(ns._nativeActiveTimerWatch) then SetNativeActiveTimerEvents(false) end
+        return
+    end
+    local rec = ns._nativeActiveTimerWatch[frame]
+    if not rec or rec.settings ~= ss then
+        rec = {}
+        ns._nativeActiveTimerWatch[frame] = rec
+        rec.active = false
+        rec.initial = true
+    end
+    rec.settings = ss
+    SetNativeActiveTimerEvents(true)
+
+    local cd = fd.cooldown or frame.Cooldown
+    if cd and not ns._nativeActiveTimerHooked[frame] then
+        ns._nativeActiveTimerHooked[frame] = true
+        hooksecurefunc(cd, "SetSwipeColor", function()
+            UpdateNativeActiveTimer(frame)
+        end)
+    end
+    UpdateNativeActiveTimer(frame)
+end
+
+function ns.ReleaseNativeActiveTimerFrame(frame)
+    ns._nativeActiveTimerWatch[frame] = nil
+    if not next(ns._nativeActiveTimerWatch) then SetNativeActiveTimerEvents(false) end
+    if ns.FakeActive_ReleaseNativeFrame then ns.FakeActive_ReleaseNativeFrame(frame) end
+end
+
+function ns.ReprimeNativeActiveTimerWatches()
+    for frame, rec in pairs(ns._nativeActiveTimerWatch) do
+        rec.active = false
+        rec.initial = true
+        UpdateNativeActiveTimer(frame)
+    end
+end
+
+-- Re-run only the visibility mode whose ready answer a custom active window
+-- temporarily overrides. Other cooldown-state effects retain normal ownership.
+function ns.ReevaluateNativeActiveTimerVisibility(frame)
+    local fd = hookFrameData[frame]
+    local fc = _ecmeFC[frame]
+    local sid = fc and fc.spellID
+    local barKey = fc and fc.barKey
+    if not (fd and sid and barKey) then return end
+    local ss = ResolveSpellSettings(frame, sid, ns.GetBarSpellData(barKey), barKey)
+    local effect = ns.CdStateHideOf(ss, frame)
+    local mode = effect and ns.CD_STATE_HIDE[effect]
+    if mode and mode.base == "hiddenReady" then
+        ArmCdStateEval(frame, fd, "hiddenReady", mode.shift, nil,
+            ss and ss.chargeHideUntilSpent)
+    end
 end
 
 -------------------------------------------------------------------------------

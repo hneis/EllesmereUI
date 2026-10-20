@@ -740,6 +740,15 @@ function ns.SetupViewerHooks()
                                     fd.pandemicGlowActive = false
                                 end
 
+                                -- Native Active State Timer integrity uses the same
+                                -- authoritative swipe-color state as the glow repair
+                                -- below, including edges where Blizzard skips a
+                                -- Cooldown:SetSwipeColor push.
+                                if ns._cdmAnyNativeActiveTimer
+                                   and ns.NativeActiveTimerIntegrity then
+                                    ns.NativeActiveTimerIntegrity(frame)
+                                end
+
                                 -- Active State Glow integrity, BOTH edges. The glow is
                                 -- normally driven as a side effect of Blizzard calling
                                 -- Cooldown:SetSwipeColor, and Blizzard skips that call

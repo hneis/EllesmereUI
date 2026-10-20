@@ -387,6 +387,32 @@ function ns.StyleOverlayCooldownText(oCd, barData, ssb, iconScale)
     end
 end
 
+-- Text-only real cooldown shown above a custom active-state window. This is an
+-- addon-owned Cooldown widget, so its font and anchor can be configured without
+-- touching the Blizzard viewer frame beneath it.
+function ns.StyleActiveTimerCooldownText(cd, barData, ss, iconScale)
+    if not cd then return end
+    local show = ss and ss.activeTimerShowCooldown == true
+    cd:SetHideCountdownNumbers(not show)
+    if not show then return end
+    iconScale = iconScale or 1
+    if iconScale < 0.01 then iconScale = 1 end
+    local size = (tonumber(ss.activeTimerCooldownSize) or 10) / iconScale
+    local r = ss.activeTimerCooldownR or (barData and barData.cooldownTextR) or 1
+    local g = ss.activeTimerCooldownG or (barData and barData.cooldownTextG) or 1
+    local b = ss.activeTimerCooldownB or (barData and barData.cooldownTextB) or 1
+    local pos = ss.activeTimerCooldownPosition or "top"
+    local x = tonumber(ss.activeTimerCooldownX) or 0
+    local y = tonumber(ss.activeTimerCooldownY) or 0
+    for _, region in pairs({ cd:GetRegions() }) do
+        if region and region.GetObjectType and region:GetObjectType() == "FontString" then
+            EllesmereUI.ApplyIconTextFont(region, GetCDMFont(), size, "cdm")
+            region:SetTextColor(r, g, b)
+            ns.AnchorCooldownText(region, cd, pos, x, y)
+        end
+    end
+end
+
 -------------------------------------------------------------------------------
 --  Per-spell Threshold Text (engine countdown formatters)
 --
@@ -619,6 +645,11 @@ local function RefreshCDMIconAppearance(barKey)
         -- watcher (SPELL_UPDATE_COOLDOWN + SPELL_UPDATE_CHARGES; charge and non-charge both handled there). Icons without the sound self-skip inside.
         if ns._cdmAnyCdReadySound and not isBuffFamilyBar and ns.WatchCdReadySoundIfEnabled then
             ns.WatchCdReadySoundIfEnabled(icon)
+        end
+        -- Native Active State Timer: hooks only opted-in cooldown/utility icons.
+        if ns._cdmAnyNativeActiveTimer and not isBuffFamilyBar
+           and ns.WatchNativeActiveTimerIfEnabled then
+            ns.WatchNativeActiveTimerIfEnabled(icon)
         end
         -- Buff per-spell settings resolve for any BUFF FRAME, not just buff-family bars: a hosted
         -- buff (real Blizzard buff frame reparented onto a CD/util bar, flagged fd._isBuffViewerFrame)

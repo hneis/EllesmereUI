@@ -1082,6 +1082,9 @@ local function CollectAndReanchor()
                     -- this bar is still live elsewhere -- disabling its swipe here
                     -- would blank it there).
                     if icons[i] and not usedFrames[icons[i]] then
+                        if ns.ReleaseNativeActiveTimerFrame then
+                            ns.ReleaseNativeActiveTimerFrame(icons[i])
+                        end
                         local efd = hookFrameData[icons[i]]
                         if efd then efd._cdmAnchor = nil end
                         if icons[i].Cooldown and icons[i].Cooldown.SetDrawSwipe then

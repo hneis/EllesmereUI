@@ -1247,5 +1247,21 @@ function ns.RescanActiveGlowFlag()
     end)
 end
 
+-- Native Active State Timer gate. The source is an own per-spell setting;
+-- inherited bar tiers never arm spell-specific behavior. The gate is monotonic
+-- so disabling a timer still reaches the watcher cleanup path this session.
+function ns.RescanNativeActiveTimerFlag()
+    if ns._cdmAnyNativeActiveTimer or ns._nativeActiveTimerFlagScanned then return end
+    if not EllesmereUIDB then return end
+    ns._nativeActiveTimerFlagScanned = true
+    ns.ForEachSavedSettingsBlock(function(ss)
+        if rawget(ss, "activeTimerSource") ~= nil
+           and (tonumber(rawget(ss, "activeTimerDuration")) or 0) > 0 then
+            ns._cdmAnyNativeActiveTimer = true
+            return true
+        end
+    end)
+end
+
 I.SpellStore = SpellStore
 I.broken = false
