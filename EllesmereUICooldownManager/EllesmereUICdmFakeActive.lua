@@ -141,6 +141,7 @@ local _cdrArmedByKey = {}
 
 -- Forward declarations
 local GetOverlay, ResolveSwipeColor, IconTexture, ApplyToFrame, ApplyRule, RaiseOverlayBorders, RestoreOverlayBorders
+local EnsurePostCooldownText, UpdatePostCooldownText
 local EnsureTicker, OpenWindow, CloseWindow, CloseAll, CastWindow
 local OpenFromAura, EvalCustom, InitialStamp, OnEvent, UpdateListeners
 local ResolveCastSpells, PresetAltItemIDs
@@ -486,6 +487,7 @@ ApplyToFrame = function(iconFrame, rule, win)
             o._timerGlowOn = nil
         end
         HoldCdGlow(iconFrame, false)
+        if o.postCooldownTextFrame then o.postCooldownTextFrame:SetAlpha(0) end
         o.cd:Clear()
         o.frame:SetAlpha(0)
         if rule.nativeTimer then SetNativeOwner(iconFrame, nil, rule) end
@@ -641,6 +643,9 @@ function ns.FakeActive_PrepareNativeFrame(frame, settings)
     if not _overlays[frame] then
         if InCombatLockdown and InCombatLockdown() then return end
         GetOverlay(frame)
+    end
+    if settings.activeTimerShowPostCooldownWindow and _overlays[frame] then
+        EnsurePostCooldownText(_overlays[frame])
     end
     if settings.activeTimerUsefulOnly and not NativeTimers.owners[frame]
        and ns.HideNativeActiveTimerFrame then
@@ -1220,14 +1225,80 @@ local function TimerGlow(o, style, r, g, b, alpha)
     o.glowOverlay:SetAlpha(alpha)
 end
 
+EnsurePostCooldownText = function(o)
+    if o.postCooldownText then return o.postCooldownText, o.postCooldownCurve end
+    if InCombatLockdown and InCombatLockdown() then return nil, nil end
+    if not (C_CurveUtil and C_CurveUtil.CreateCurve and Enum and Enum.LuaCurveType) then
+        return nil, nil
+    end
+    local carrier = CreateFrame("Frame", nil, o.frame)
+    carrier:SetAllPoints(o.frame)
+    carrier:SetFrameLevel(o.frame:GetFrameLevel() + 3)
+    carrier:SetAlpha(0)
+    local text = carrier:CreateFontString(nil, "OVERLAY")
+    local curve = C_CurveUtil.CreateCurve()
+    curve:SetType(Enum.LuaCurveType.Linear)
+    o.postCooldownTextFrame = carrier
+    o.postCooldownText = text
+    o.postCooldownCurve = curve
+    return text, curve
+end
+
+UpdatePostCooldownText = function(iconFrame, o, win, ss, duration, alpha)
+    if not (ss and ss.activeTimerShowPostCooldownWindow == true and win
+            and duration and duration.EvaluateRemainingDuration) then
+        if o.postCooldownTextFrame then o.postCooldownTextFrame:SetAlpha(0) end
+        return
+    end
+    local text, curve = EnsurePostCooldownText(o)
+    if not (text and curve) then return end
+
+    local scale = iconFrame:GetScale() or 1
+    if scale < 0.01 then scale = 1 end
+    local font = EllesmereUI.GetFontPath("cdm")
+        or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
+    local size = (tonumber(ss.activeTimerPostCooldownSize) or 10) / scale
+    if EllesmereUI.ApplyIconTextFont then
+        EllesmereUI.ApplyIconTextFont(text, font, size, "cdm")
+    else
+        text:SetFont(font, size, "OUTLINE")
+    end
+    text:SetTextColor(ss.activeTimerPostCooldownR or 1,
+        ss.activeTimerPostCooldownG or 1, ss.activeTimerPostCooldownB or 1)
+    local position = ss.activeTimerPostCooldownPosition or "topright"
+    local point, x, y = "TOPRIGHT", -1, -1
+    if position == "topleft" then
+        point, x = "TOPLEFT", 1
+    elseif position == "bottomleft" then
+        point, x, y = "BOTTOMLEFT", 1, 1
+    elseif position == "bottomright" then
+        point, y = "BOTTOMRIGHT", 1
+    end
+    text:ClearAllPoints()
+    text:SetPoint(point, o.postCooldownTextFrame, point, x / scale, y / scale)
+    text:SetJustifyH(point:find("RIGHT", 1, true) and "RIGHT" or "LEFT")
+
+    local remaining = math.max(0.001, win.expiry - GetTime())
+    curve:ClearPoints()
+    curve:AddPoint(0, remaining)
+    curve:AddPoint(remaining, 0)
+    o.postCooldownTextFrame:SetAlpha(alpha)
+    text:SetFormattedText("%.1f", duration:EvaluateRemainingDuration(curve, 0))
+end
+
 ApplyTimerPresentation = function(iconFrame, o, rule, win, ss, bd)
+    UpdatePostCooldownText(iconFrame, o, nil, ss)
     local usefulOnly = ss and ss.activeTimerUsefulOnly == true
     local duration, cooldownState
-    if usefulOnly then duration, cooldownState = TimerCooldownDuration(rule) end
+    if usefulOnly or (ss and ss.activeTimerResourceUsesReadyGlow == true) then
+        duration, cooldownState = TimerCooldownDuration(rule)
+    end
     local spellUsable, insufficientPower = TimerSpellUsable(rule)
     local usable = spellUsable and (not usefulOnly or cooldownState == "ready")
     local resourceTimer = ss and ss.activeTimerShowResourceTimer == true
         and insufficientPower and (not usefulOnly or cooldownState == "ready")
+    local readyGlow = usable or (ss and ss.activeTimerResourceUsesReadyGlow == true
+        and insufficientPower and cooldownState == "ready")
     local fc = ns._ecmeFC and ns._ecmeFC[iconFrame]
     local validity = 1
     if usefulOnly then
@@ -1245,7 +1316,7 @@ ApplyTimerPresentation = function(iconFrame, o, rule, win, ss, bd)
         local cr, cg, cb, ca = ResolveSwipeColor(ss)
         o.cd:SetSwipeColor(cr, cg, cb, ca)
         o.cd:SetCooldown(win.start, win.dur)
-        if usable then
+        if readyGlow then
             TimerGlow(o, ss and ss.activeTimerReadyGlow,
                 (ss and ss.activeTimerReadyGlowR) or 0.1,
                 (ss and ss.activeTimerReadyGlowG) or 1,
@@ -1265,7 +1336,7 @@ ApplyTimerPresentation = function(iconFrame, o, rule, win, ss, bd)
         local cr, cg, cb, ca = ResolveSwipeColor(ss)
         o.cd:SetSwipeColor(cr, cg, cb, ca)
         o.cd:SetCooldown(win.start, win.dur)
-        if usable then
+        if readyGlow then
             TimerGlow(o, ss and ss.activeTimerReadyGlow,
                 (ss and ss.activeTimerReadyGlowR) or 0.1,
                 (ss and ss.activeTimerReadyGlowG) or 1,
@@ -1286,6 +1357,7 @@ ApplyTimerPresentation = function(iconFrame, o, rule, win, ss, bd)
             if ns.StyleOverlayCooldownText then
                 ns.StyleOverlayCooldownText(o.cd, bd, ss, iconFrame:GetScale())
             end
+            UpdatePostCooldownText(iconFrame, o, win, ss, duration, validity)
         else
             o._timerDisplayMode = nil
             o.cd:SetAlpha(0)

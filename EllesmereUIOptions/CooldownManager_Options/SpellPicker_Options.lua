@@ -18,6 +18,14 @@ EllesmereUI.L("After Cast")
 EllesmereUI.L("Close Timer After Cast")
 EllesmereUI.L("Show Useful Window Only")
 EllesmereUI.L("Show Timer While Resource-Limited")
+EllesmereUI.L("Use Ready Glow While Resource-Limited")
+EllesmereUI.L("Show Post-Cooldown Window")
+EllesmereUI.L("Shows how much proc time will remain after the cooldown finishes.")
+EllesmereUI.L("Post-Cooldown Text Size")
+EllesmereUI.L("Post-Cooldown Text Color")
+EllesmereUI.L("Post-Cooldown Text Position")
+EllesmereUI.L("Enable Show Useful Window Only")
+EllesmereUI.L("Enable Post-Cooldown Window")
 EllesmereUI.L("Choose an event-driven Timer Source first")
 EllesmereUI.L("Choose a Timer Source first")
 EllesmereUI.L("Waiting Glow")
@@ -4067,6 +4075,47 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                       disabledTooltip="Choose a Timer Source first",
                                       get=function() return rawget(ss, "activeTimerShowResourceTimer") == true end,
                                       set=function(v) EnsureSS(); ss.activeTimerShowResourceTimer = v or nil; TimerVisualChanged(row) end },
+                                    { type="toggle", label="Use Ready Glow While Resource-Limited",
+                                      disabled=function() return rawget(ss, "activeTimerSource") == nil end,
+                                      disabledTooltip="Choose a Timer Source first",
+                                      get=function() return rawget(ss, "activeTimerResourceUsesReadyGlow") == true end,
+                                      set=function(v) EnsureSS(); ss.activeTimerResourceUsesReadyGlow = v or nil; TimerVisualChanged(row) end },
+                                    { type="toggle", label="Show Post-Cooldown Window",
+                                      tooltip="Shows how much proc time will remain after the cooldown finishes.",
+                                      disabled=function() return rawget(ss, "activeTimerUsefulOnly") ~= true end,
+                                      disabledTooltip="Enable Show Useful Window Only",
+                                      get=function() return rawget(ss, "activeTimerShowPostCooldownWindow") == true end,
+                                      set=function(v) EnsureSS(); ss.activeTimerShowPostCooldownWindow = v or nil; TimerVisualChanged(row) end },
+                                    { type="slider", label="Post-Cooldown Text Size", min=6, max=30, step=1,
+                                      hidden=function() return rawget(ss, "activeTimerShowPostCooldownWindow") ~= true
+                                          or rawget(ss, "activeTimerUsefulOnly") ~= true end,
+                                      disabled=function() return rawget(ss, "activeTimerSource") == nil end,
+                                      disabledTooltip="Enable Post-Cooldown Window",
+                                      get=function() return tonumber(rawget(ss, "activeTimerPostCooldownSize")) or 10 end,
+                                      set=function(v) EnsureSS(); ss.activeTimerPostCooldownSize = v; TimerVisualChanged(row) end },
+                                    { type="colorpicker", label="Post-Cooldown Text Color",
+                                      hidden=function() return rawget(ss, "activeTimerShowPostCooldownWindow") ~= true
+                                          or rawget(ss, "activeTimerUsefulOnly") ~= true end,
+                                      disabled=function() return rawget(ss, "activeTimerSource") == nil end,
+                                      disabledTooltip="Enable Post-Cooldown Window",
+                                      get=function() return rawget(ss, "activeTimerPostCooldownR") or 1,
+                                          rawget(ss, "activeTimerPostCooldownG") or 1,
+                                          rawget(ss, "activeTimerPostCooldownB") or 1 end,
+                                      set=function(r, g, b)
+                                          EnsureSS(); ss.activeTimerPostCooldownR = r
+                                          ss.activeTimerPostCooldownG = g; ss.activeTimerPostCooldownB = b
+                                          TimerVisualChanged(row)
+                                      end },
+                                    { type="dropdown", label="Post-Cooldown Text Position",
+                                      values={ topleft="Top Left", topright="Top Right",
+                                          bottomleft="Bottom Left", bottomright="Bottom Right" },
+                                      order={ "topleft", "topright", "bottomleft", "bottomright" },
+                                      hidden=function() return rawget(ss, "activeTimerShowPostCooldownWindow") ~= true
+                                          or rawget(ss, "activeTimerUsefulOnly") ~= true end,
+                                      disabled=function() return rawget(ss, "activeTimerSource") == nil end,
+                                      disabledTooltip="Enable Post-Cooldown Window",
+                                      get=function() return rawget(ss, "activeTimerPostCooldownPosition") or "topright" end,
+                                      set=function(v) EnsureSS(); ss.activeTimerPostCooldownPosition = v; TimerVisualChanged(row) end },
                                     { type="dropdown", label="Waiting Glow",
                                       values={ [0]="None", [1]="Pixel Glow", [3]="Action Button Glow",
                                           [4]="Auto-Cast Shine", [2]="Shape Glow", [5]="GCD",
